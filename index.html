@@ -295,6 +295,8 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px;
     <button class="tab-btn" onclick="showTab('tiaduf',this)">🔀 TIADUF</button>
     <button class="tab-btn" onclick="showTab('expedite',this)">✉️ Expedite</button>
     <button class="tab-btn" onclick="showTab('summary',this)">📄 Summary</button>
+    <button class="tab-btn" onclick="showTab('rawdata',this)">📂 Raw Data</button>
+    <button class="tab-btn" onclick="showTab('bom',this)">🔩 BOM</button>
   </div>
 
   <!-- ── READINESS ── -->
@@ -326,6 +328,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px;
         <th style="width:60px">NOPO</th>
         <th onclick="rsort('days_away')" style="width:70px">Days</th>
         <th onclick="rsort('status')" style="width:130px">Status</th>
+        <th style="width:160px">Notes</th>
       </tr></thead>
       <tbody id="r-body"></tbody></table>
     </div>
@@ -335,6 +338,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px;
   <div id="tab-shortage" class="tab-panel">
     <div class="toolbar">
       <select id="s-prod" onchange="renderShortage()" style="max-width:260px;"></select>
+      <input type="text" id="s-prod-search" placeholder="Search product name…" oninput="filterProdSelect()" style="width:180px;">
       <input type="text" id="s-search" placeholder="Search item / supplier…" oninput="renderShortage()">
       <select id="s-type" onchange="renderShortage()">
         <option value="all">All types</option>
@@ -513,6 +517,40 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px;
     </div>
     <div id="sum-output"></div>
   </div>
+
+  <!-- ── RAW DATA ── -->
+  <div id="tab-rawdata" class="tab-panel">
+    <div class="info-banner">📂 This is the raw CTB file you uploaded — all rows, no filtering.</div>
+    <div class="toolbar">
+      <input type="text" id="rd-search" placeholder="Search any column…" oninput="renderRawData()">
+      <span id="rd-count" style="font-size:.78rem;color:var(--muted);"></span>
+      <button class="btn ml-auto" onclick="exportCSV('rawdata')">⬇ Export</button>
+    </div>
+    <div class="tbl-wrap"><table><thead><tr id="rd-head"></tr></thead><tbody id="rd-body"></tbody></table></div>
+  </div>
+
+  <!-- ── BOM ── -->
+  <div id="tab-bom" class="tab-panel">
+    <div class="info-banner">🔩 Upload your Indented BOM file to cross-reference with shortage data.</div>
+    <div style="max-width:480px;margin-bottom:20px;">
+      <div id="bom-drop" onclick="document.getElementById('bom-input').click()"
+        style="border:2px dashed var(--border);border-radius:12px;padding:32px 24px;text-align:center;cursor:pointer;transition:border-color .2s;">
+        <div style="font-size:2rem;margin-bottom:10px;">🔩</div>
+        <div style="font-weight:600;margin-bottom:6px;">Upload BOM File</div>
+        <div style="font-size:.82rem;color:var(--muted);margin-bottom:14px;">Select your Indented BOM .xlsx from Teams / Files</div>
+        <label class="upload-btn" style="font-size:.85rem;padding:8px 20px;">Choose BOM File</label>
+      </div>
+      <input type="file" id="bom-input" accept=".xlsx,.xlsm,.xls" style="display:none">
+      <div id="bom-status" style="margin-top:10px;font-size:.82rem;color:var(--muted);"></div>
+    </div>
+    <div class="toolbar" id="bom-toolbar" style="display:none;">
+      <input type="text" id="bom-search" placeholder="Search item / description…" oninput="renderBOM()">
+      <select id="bom-prod" onchange="renderBOM()" style="max-width:260px;"></select>
+      <button class="btn ml-auto" onclick="exportCSV('bom')">⬇ Export</button>
+    </div>
+    <div class="tbl-wrap"><table><thead><tr id="bom-head"></tr></thead><tbody id="bom-body"></tbody></table></div>
+  </div>
+
 </div>
 
 <!-- ══════════════════════════════════════════════════
@@ -637,6 +675,7 @@ function parseAndRender(rows, filename) {
   }
   const C = detectCols(rows[hdrIdx]);
 
+  window._lastRawRows = rows;  // keep for Raw Data tab
   DATA = [];
   for (let i = hdrIdx + 1; i < rows.length; i++) {
     const r = rows[i];
@@ -794,6 +833,9 @@ function buildProducts() {
   PRODUCTS = Object.entries(byTop).map(([top, grp]) => {
     const all = [...grp.active, ...grp.sim];
     const td = all[0];
+    // FIX: deduplicate by WO ID — same ID across multiple component rows
+    // means one WO with one qty, not multiple. Use the qty from the first
+    // occurrence of each unique order_id.
     const seenA = {}, seenS = {};
     grp.active.forEach(c => { if (!(c.order_id in seenA)) seenA[c.order_id] = c.qty_top; });
     grp.sim.forEach(c =>    { if (!(c.order_id in seenS)) seenS[c.order_id] = c.qty_top; });
@@ -908,6 +950,8 @@ function initUI(filename) {
   renderRC();
   renderTiaduf();
   buildSummary();
+  // Pass raw rows to raw data tab
+  initRawData(window._lastRawRows || []);
 }
 
 // ════════════════════════════════════
@@ -927,6 +971,9 @@ function rsort(col) {
 
 const ST_BADGE = { 'FULLY BLOCKED':'b-blocked','AT RISK':'b-risk','CLEAR':'b-clear' };
 
+// Storage for user remarks keyed by product TOP
+const USER_REMARKS = {};
+
 function renderReadiness() {
   const srch = document.getElementById('r-search').value.toLowerCase();
   const flt  = document.getElementById('r-status').value;
@@ -945,22 +992,57 @@ function renderReadiness() {
     const pct = p.pct_short;
     const dc  = p.days_away < 0 ? 'var(--red)' : p.days_away < 14 ? 'var(--orange)' : p.days_away < 30 ? 'var(--sol2)' : 'var(--muted)';
     const wo  = p.has_sim && p.has_active ? `<span class="badge b-sim">A+S</span>` : p.has_sim ? `<span class="badge b-sim">SIM</span>` : `<span class="badge b-act">ACT</span>`;
-    return `<tr class="${p.status==='FULLY BLOCKED'?'r-critical':''}">
-      <td style="color:var(--muted);font-size:.75rem">${p.rank}</td>
-      <td style="font-weight:700;color:var(--accent2);font-size:.82rem">${p.top} ${wo}</td>
-      <td><span class="trunc" title="${p.top_desc}">${p.top_desc}</span></td>
-      <td style="color:var(--muted);font-size:.8rem">${p.due_str}</td>
-      <td style="text-align:right">${p.active_qty?Math.round(p.active_qty):'—'}</td>
-      <td style="text-align:right;color:var(--sim)">${p.sim_qty?Math.round(p.sim_qty):'—'}</td>
-      <td style="text-align:right;font-weight:700">${Math.round(p.total_qty)}</td>
-      <td style="text-align:right;color:${p.n_short>0?'var(--orange)':'var(--green)'};font-weight:700">${p.n_short}</td>
-      <td><div class="prog"><div class="prog-fill" style="width:${pct}%;background:${progColor(100-pct)}"></div></div> <span style="font-size:.75rem;color:${progColor(100-pct)}">${pct}%</span></td>
-      <td>${p.has_e2s?`<span class="badge b-e2s">E2S</span>`:'<span style="color:var(--border)">—</span>'}</td>
-      <td>${p.has_nopo?`<span class="badge b-warn">NOPO</span>`:'<span style="color:var(--border)">—</span>'}</td>
-      <td style="font-weight:700;color:${dc}">${p.days_away<9999?p.days_away:'—'}</td>
-      <td><span class="badge ${ST_BADGE[p.status]}">${p.status}</span></td>
+    const remark = (USER_REMARKS[p.top]||'').replace(/"/g,'&quot;');
+    return `<tr class="${p.status==='FULLY BLOCKED'?'r-critical':''}" style="cursor:pointer;" title="Click to filter Shortages tab">
+      <td style="color:var(--muted);font-size:.75rem" onclick="selectProductFromReadiness('${p.top}')">${p.rank}</td>
+      <td style="font-weight:700;color:var(--accent2);font-size:.82rem" onclick="selectProductFromReadiness('${p.top}')">${p.top} ${wo}</td>
+      <td onclick="selectProductFromReadiness('${p.top}')"><span class="trunc" title="${p.top_desc}">${p.top_desc}</span></td>
+      <td style="color:var(--muted);font-size:.8rem" onclick="selectProductFromReadiness('${p.top}')">${p.due_str}</td>
+      <td style="text-align:right" onclick="selectProductFromReadiness('${p.top}')">${p.active_qty?Math.round(p.active_qty):'—'}</td>
+      <td style="text-align:right;color:var(--sim)" onclick="selectProductFromReadiness('${p.top}')">${p.sim_qty?Math.round(p.sim_qty):'—'}</td>
+      <td style="text-align:right;font-weight:700" onclick="selectProductFromReadiness('${p.top}')">${Math.round(p.total_qty)}</td>
+      <td style="text-align:right;color:${p.n_short>0?'var(--orange)':'var(--green)'};font-weight:700" onclick="selectProductFromReadiness('${p.top}')">${p.n_short}</td>
+      <td onclick="selectProductFromReadiness('${p.top}')"><div class="prog"><div class="prog-fill" style="width:${pct}%;background:${progColor(100-pct)}"></div></div> <span style="font-size:.75rem;color:${progColor(100-pct)}">${pct}%</span></td>
+      <td onclick="selectProductFromReadiness('${p.top}')">${p.has_e2s?'<span class="badge b-e2s">E2S</span>':'<span style="color:var(--border)">—</span>'}</td>
+      <td onclick="selectProductFromReadiness('${p.top}')">${p.has_nopo?'<span class="badge b-warn">NOPO</span>':'<span style="color:var(--border)">—</span>'}</td>
+      <td style="font-weight:700;color:${dc}" onclick="selectProductFromReadiness('${p.top}')">${p.days_away<9999?p.days_away:'—'}</td>
+      <td onclick="selectProductFromReadiness('${p.top}')"><span class="badge ${ST_BADGE[p.status]}">${p.status}</span></td>
+      <td onclick="event.stopPropagation()">
+        <input type="text" value="${remark}" placeholder="Add note…"
+          data-top="${p.top}"
+          onchange="USER_REMARKS[this.dataset.top]=this.value"
+          style="background:transparent;border:none;border-bottom:1px solid var(--border);
+                 color:var(--text);font-size:.78rem;width:140px;outline:none;padding:2px 4px;"
+          onfocus="this.style.borderBottomColor='var(--accent)'"
+          onblur="this.style.borderBottomColor='var(--border)'"
+        >
+      </td>
     </tr>`;
   }).join('');
+}
+
+function selectProductFromReadiness(top) {
+  const sel = document.getElementById('s-prod');
+  for (let i = 0; i < sel.options.length; i++) {
+    if (sel.options[i].value === top) { sel.selectedIndex = i; break; }
+  }
+  renderShortage();
+  const shortBtn = document.querySelector('.tab-btn[onclick*=\'shortage\']');
+  if (shortBtn) showTab('shortage', shortBtn);
+  toast('Shortages filtered for ' + top);
+}
+
+
+function filterProdSelect() {
+  const srch = document.getElementById('s-prod-search').value.toLowerCase();
+  const sel  = document.getElementById('s-prod');
+  // Show/hide options based on search
+  const allProds = PRODUCTS.filter(p => p.n_short > 0);
+  const filtered = srch ? allProds.filter(p => [p.top,p.top_desc].join(' ').toLowerCase().includes(srch)) : allProds;
+  sel.innerHTML = filtered.map(p =>
+    `<option value="${p.top}">${p.top} — ${p.top_desc.substring(0,40)} (${p.n_short} short)</option>`
+  ).join('');
+  renderShortage();
 }
 
 function renderShortage() {
@@ -1294,6 +1376,14 @@ function exportCSV(type) {
       const sols=buildSolutions(c);
       csv += [c.is_sim?'SIM':'ACT',c.item,c.item_desc,c.type,c.top,fd(c.due_top),c.short?Math.round(c.short):'',c.tiaduf,c.supplier,sols.realloc,sols.altPart,sols.partial].map(csvC).join(',')+'\r\n';
     });
+  } else if (type==='rawdata') {
+    if (!RAW_HEADERS.length) return;
+    csv = RAW_HEADERS.map(csvC).join(',')+'\r\n';
+    RAW_ROWS.forEach(r => { csv += RAW_HEADERS.map((_,i) => csvC(r[i]===null?'':r[i])).join(',')+'\r\n'; });
+  } else if (type==='bom') {
+    if (!BOM_HEADERS.length) return;
+    csv = BOM_HEADERS.map(csvC).join(',')+'\r\n';
+    BOM_ROWS.forEach(r => { csv += BOM_HEADERS.map((_,i) => csvC(r[i]===null?'':r[i])).join(',')+'\r\n'; });
   }
 
   const fname = `CTB_${type}_${TODAY_STR.replace(/\//g,'-')}.csv`;
@@ -1307,6 +1397,93 @@ function exportCSV(type) {
     // iPad fallback — copy to clipboard
     writeClip(csv); toast('Download blocked — CSV copied to clipboard instead');
   }
+}
+
+// ════════════════════════════════════
+// RAW DATA TAB
+// ════════════════════════════════════
+let RAW_HEADERS = [];
+let RAW_ROWS    = [];
+
+function initRawData(rows) {
+  RAW_HEADERS = (rows[0] || []).map((v,i) => v ? String(v).trim() : 'Col '+i);
+  RAW_ROWS    = rows.slice(1).filter(r => r && r[0]);
+  renderRawData();
+}
+
+function renderRawData() {
+  const srch = (document.getElementById('rd-search').value||'').toLowerCase();
+  const filtered = srch
+    ? RAW_ROWS.filter(r => r.some(v => String(v||'').toLowerCase().includes(srch)))
+    : RAW_ROWS;
+  document.getElementById('rd-count').textContent = filtered.length + ' rows';
+  // Headers
+  document.getElementById('rd-head').innerHTML =
+    RAW_HEADERS.map(h => `<th style="min-width:80px">${h}</th>`).join('');
+  // Rows (cap at 2000 for performance)
+  const display = filtered.slice(0,2000);
+  document.getElementById('rd-body').innerHTML = display.map((r,ri) =>
+    `<tr>${RAW_HEADERS.map((_,ci) => `<td style="font-size:.78rem;white-space:nowrap;color:${ci===0?'var(--accent2)':'var(--text)'}">${r[ci]===null||r[ci]===undefined?'':r[ci]}</td>`).join('')}</tr>`
+  ).join('');
+}
+
+// ════════════════════════════════════
+// BOM TAB
+// ════════════════════════════════════
+let BOM_HEADERS = [];
+let BOM_ROWS    = [];
+
+document.getElementById('bom-input').addEventListener('change', e => {
+  if (e.target.files[0]) loadBOM(e.target.files[0]);
+});
+
+function loadBOM(file) {
+  showLoading('Reading BOM: ' + file.name);
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const wb2 = XLSX.read(ev.target.result, {type:'array', cellDates:true});
+      // Try 'Indented BOM' sheet first, then first sheet
+      const sn = wb2.SheetNames.find(n => n.toLowerCase().includes('bom') || n.toLowerCase().includes('indent')) || wb2.SheetNames[0];
+      const ws2 = wb2.Sheets[sn];
+      const rows = XLSX.utils.sheet_to_json(ws2, {header:1, defval:null, raw:false});
+      BOM_HEADERS = (rows[0]||[]).map((v,i) => v?String(v).trim():'Col '+i);
+      BOM_ROWS    = rows.slice(1).filter(r => r && r[0]);
+      // Build product selector from TOP column (col 0)
+      const tops = [...new Set(BOM_ROWS.map(r=>String(r[0]||'').trim()).filter(Boolean))];
+      const bomSel = document.getElementById('bom-prod');
+      bomSel.innerHTML = '<option value="all">All products</option>' +
+        tops.map(t=>`<option value="${t}">${t}</option>`).join('');
+      document.getElementById('bom-toolbar').style.display='';
+      document.getElementById('bom-status').textContent = `Loaded: ${file.name} · ${BOM_ROWS.length} rows · sheet: ${sn}`;
+      hideLoading();
+      renderBOM();
+    } catch(err) {
+      hideLoading();
+      document.getElementById('bom-status').textContent = 'Error: ' + err.message;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function renderBOM() {
+  const srch = (document.getElementById('bom-search').value||'').toLowerCase();
+  const prod = document.getElementById('bom-prod').value;
+  const filtered = BOM_ROWS.filter(r => {
+    if (prod!=='all' && String(r[0]||'').trim() !== prod) return false;
+    if (srch && !r.some(v => String(v||'').toLowerCase().includes(srch))) return false;
+    return true;
+  });
+  document.getElementById('bom-head').innerHTML =
+    BOM_HEADERS.map(h=>`<th style="min-width:80px">${h}</th>`).join('');
+  document.getElementById('bom-body').innerHTML = filtered.slice(0,3000).map(r =>
+    `<tr>${BOM_HEADERS.map((_,ci) => {
+      const v = r[ci]===null||r[ci]===undefined?'':r[ci];
+      // Highlight items that are in shortage
+      const isShortItem = ci===1 && ALL_SHORTS.some(s=>s.item===String(v).trim());
+      return `<td style="font-size:.78rem;white-space:nowrap;${ci===0?'color:var(--accent2);font-weight:700':isShortItem?'color:var(--red);font-weight:700':''}">${v}</td>`;
+    }).join('')}</tr>`
+  ).join('');
 }
 
 // ════════════════════════════════════
