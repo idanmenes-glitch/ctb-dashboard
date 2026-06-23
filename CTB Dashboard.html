@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>CTB Shortage Dashboard</title>
+<style>
+/* ── Reset & base ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 14px; -webkit-text-size-adjust: 100%; }
+body { font-family: -apple-system, 'Segoe UI', Arial, sans-serif; background: #0f1923; color: #e8edf2; min-height: 100vh; }
+
+/* ── Design tokens ── */
+:root {
+  --navy:    #0f1923;
+  --panel:   #162030;
+  --card:    #1e2d3d;
+  --border:  #2a3f55;
+  --accent:  #2196f3;
+  --accent2: #00bcd4;
+  --red:     #ef5350;
+  --red-bg:  rgba(239,83,80,.13);
+  --orange:  #ff9800;
+  --ora-bg:  rgba(255,152,0,.13);
+  --yellow-bg: rgba(255,235,59,.10);
+  --green:   #66bb6a;
+  --grn-bg:  rgba(102,187,106,.13);
+  --sim:     #ce93d8;
+  --sim-bg:  rgba(206,147,216,.10);
+  --sol:     #80cbc4;
+  --sol-bg:  rgba(128,203,196,.12);
+  --sol2:    #ffb74d;
+  --sol2-bg: rgba(255,183,77,.12);
+  --sol3:    #64b5f6;
+  --sol3-bg: rgba(100,181,246,.12);
+  --text:    #e8edf2;
+  --muted:   #7a99b8;
+  --radius:  8px;
+  --shadow:  0 2px 12px rgba(0,0,0,.35);
+}
+
+/* ── Typography ── */
+h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -.01em; }
+h2 { font-size: .95rem; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--muted); }
+
+/* ── Layout ── */
+#topbar {
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 20px;
+  display: flex; align-items: center; gap: 14px;
+  position: sticky; top: 0; z-index: 200;
+  box-shadow: 0 1px 8px rgba(0,0,0,.4);
+}
+#topbar-title { flex: 1; }
+#topbar-title h1 { color: var(--accent); font-size: 1.1rem; }
+#topbar-date { font-size: .75rem; color: var(--muted); }
+#topbar-health { font-size: .8rem; font-weight: 700; padding: 4px 10px; border-radius: 20px; }
+.health-critical { background: var(--red-bg); color: var(--red); }
+.health-elevated  { background: var(--ora-bg); color: var(--orange); }
+.health-stable    { background: var(--grn-bg); color: var(--green); }
+
+/* ── Upload screen ── */
+#upload-screen {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: calc(100vh - 57px); padding: 40px 20px; text-align: center;
+}
+#drop-zone {
+  border: 2px dashed var(--border); border-radius: 16px;
+  padding: 60px 40px; max-width: 480px; width: 100%; cursor: pointer;
+  transition: border-color .2s, background .2s; margin-bottom: 24px;
+}
+#drop-zone.drag-over { border-color: var(--accent); background: rgba(33,150,243,.06); }
+#drop-zone .icon { font-size: 3rem; margin-bottom: 16px; display: block; }
+#drop-zone h2 { font-size: 1.1rem; color: var(--text); text-transform: none; margin-bottom: 8px; }
+#drop-zone p { color: var(--muted); font-size: .88rem; margin-bottom: 20px; }
+#file-input { display: none; }
+.upload-btn {
+  background: var(--accent); color: #fff; border: none; border-radius: 8px;
+  padding: 12px 28px; font-size: .95rem; font-weight: 600; cursor: pointer;
+  display: inline-block; transition: background .2s;
+}
+.upload-btn:hover { background: #1976d2; }
+.supported-note { font-size: .78rem; color: var(--muted); margin-top: 10px; }
+
+/* ── Nav tabs ── */
+#nav {
+  background: var(--panel); border-bottom: 1px solid var(--border);
+  display: flex; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  position: sticky; top: 57px; z-index: 190;
+  scrollbar-width: none;
+}
+#nav::-webkit-scrollbar { display: none; }
+.tab-btn {
+  flex-shrink: 0; border: none; background: transparent; color: var(--muted);
+  padding: 13px 18px; font-size: .85rem; font-weight: 500; cursor: pointer;
+  border-bottom: 3px solid transparent; white-space: nowrap;
+  transition: color .15s, border-color .15s;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 700; }
+
+/* ── Main content ── */
+#main { display: none; }
+.tab-panel { display: none; padding: 20px; }
+.tab-panel.active { display: block; }
+
+/* ── KPI strip ── */
+.kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-bottom: 20px; }
+.kpi-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 12px; text-align: center; }
+.kpi-label { font-size: .72rem; color: var(--muted); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .04em; }
+.kpi-val { font-size: 1.6rem; font-weight: 700; }
+.kpi-sub { font-size: .7rem; color: var(--muted); margin-top: 2px; }
+
+/* ── Toolbar ── */
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+.toolbar input[type=text], .toolbar select {
+  background: var(--card); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: 7px 12px; font-size: .83rem; outline: none;
+  -webkit-appearance: none;
+}
+.toolbar input[type=text]:focus, .toolbar select:focus { border-color: var(--accent); }
+.toolbar input[type=text] { width: 200px; }
+.btn {
+  background: var(--card); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: 7px 14px; font-size: .83rem; cursor: pointer;
+  white-space: nowrap; transition: background .15s;
+}
+.btn:hover { background: var(--border); }
+.btn-accent { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn-accent:hover { background: #1976d2; }
+.ml-auto { margin-left: auto; }
+
+/* ── Table ── */
+.tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: var(--radius); border: 1px solid var(--border); }
+table { border-collapse: collapse; width: 100%; font-size: .8rem; }
+thead th {
+  background: var(--panel); color: var(--muted); padding: 9px 10px;
+  text-align: left; white-space: nowrap; border-bottom: 1px solid var(--border);
+  cursor: pointer; user-select: none; font-weight: 600; font-size: .75rem;
+  text-transform: uppercase; letter-spacing: .04em;
+  position: sticky; top: 0;
+}
+thead th.sol-hdr { background: #0d2818; color: var(--sol); }
+thead th:hover { color: var(--text); }
+tbody tr { border-bottom: 1px solid rgba(42,63,85,.5); transition: background .1s; }
+tbody tr:hover td { background: rgba(33,150,243,.05) !important; }
+tbody td { padding: 8px 10px; vertical-align: top; }
+.cell-wrap { max-width: 280px; }
+.trunc { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+
+/* ── Badges ── */
+.badge { display: inline-block; font-size: .7rem; font-weight: 700; padding: 2px 8px; border-radius: 12px; white-space: nowrap; }
+.b-blocked  { background: var(--red-bg);  color: var(--red); }
+.b-risk     { background: var(--ora-bg);  color: var(--orange); }
+.b-clear    { background: var(--grn-bg);  color: var(--green); }
+.b-sim      { background: var(--sim-bg);  color: var(--sim); }
+.b-act      { background: var(--grn-bg);  color: var(--green); }
+.b-info     { background: var(--sol3-bg); color: var(--sol3); }
+.b-warn     { background: var(--ora-bg);  color: var(--orange); }
+.b-e2s      { background: var(--red-bg);  color: var(--red); font-size: .65rem; }
+
+/* ── Row color helpers ── */
+.r-critical td { background: rgba(239,83,80,.05); }
+.r-sim td      { background: rgba(206,147,216,.05); }
+.r-alt td      { background: rgba(0,0,0,0); }
+
+/* ── Solution cells ── */
+.sol-cell { font-size: .75rem; color: var(--sol); line-height: 1.45; min-width: 200px; }
+.sol2-cell { color: var(--sol2); }
+.sol3-cell { color: var(--sol3); }
+.sol-empty { color: var(--border); font-style: italic; }
+
+/* ── Progress bar ── */
+.prog { background: var(--border); border-radius: 4px; height: 6px; width: 60px; overflow: hidden; display: inline-block; vertical-align: middle; }
+.prog-fill { height: 100%; border-radius: 4px; }
+
+/* ── Detail accordion ── */
+.prod-row { cursor: pointer; }
+.prod-row:hover td { background: rgba(33,150,243,.08) !important; }
+.detail-row { display: none; }
+.detail-row.open { display: table-row; }
+.detail-inner { padding: 14px 16px; background: rgba(15,25,35,.6); border-top: 2px solid var(--accent); }
+
+/* ── Expedite panel ── */
+.exp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 700px) { .exp-grid { grid-template-columns: 1fr; } }
+.form-group { margin-bottom: 12px; }
+.form-group label { display: block; font-size: .78rem; color: var(--muted); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .04em; }
+.form-group input, .form-group select, .form-group textarea {
+  width: 100%; background: var(--card); border: 1px solid var(--border);
+  color: var(--text); border-radius: 6px; padding: 8px 12px; font-size: .85rem;
+  font-family: inherit; outline: none; -webkit-appearance: none;
+}
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--accent); }
+.form-group textarea { resize: vertical; min-height: 80px; }
+#exp-output {
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px; font-family: 'Courier New', monospace; font-size: .78rem;
+  white-space: pre-wrap; line-height: 1.6; color: var(--text); min-height: 360px;
+}
+#exp-subject-box { margin-bottom: 10px; }
+
+/* ── Summary output ── */
+#sum-output {
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 16px; font-family: 'Courier New', monospace; font-size: .78rem;
+  white-space: pre-wrap; line-height: 1.65; color: var(--text); min-height: 400px;
+}
+
+/* ── Info banner ── */
+.info-banner {
+  background: var(--sim-bg); border: 1px solid rgba(206,147,216,.25);
+  border-radius: 8px; padding: 10px 14px; font-size: .8rem; color: var(--sim);
+  margin-bottom: 14px;
+}
+.warn-banner {
+  background: var(--ora-bg); border: 1px solid rgba(255,152,0,.2);
+  border-radius: 8px; padding: 10px 14px; font-size: .8rem; color: var(--orange);
+  margin-bottom: 14px;
+}
+
+/* ── Legend box ── */
+.legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.leg-item { display: flex; align-items: center; gap: 6px; font-size: .75rem; color: var(--muted); }
+.leg-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+/* ── Horizon slider ── */
+.slider-row { display: flex; align-items: center; gap: 10px; }
+input[type=range] { -webkit-appearance: none; background: var(--border); height: 4px; border-radius: 2px; outline: none; width: 140px; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); cursor: pointer; }
+
+/* ── Toast ── */
+#toast {
+  position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+  background: var(--green); color: #fff; padding: 10px 24px; border-radius: 24px;
+  font-size: .85rem; font-weight: 600; z-index: 9999; opacity: 0;
+  transition: opacity .3s; pointer-events: none; white-space: nowrap;
+}
+#toast.show { opacity: 1; }
+
+/* ── Loading overlay ── */
+#loading {
+  display: none; position: fixed; inset: 0; background: rgba(15,25,35,.85);
+  z-index: 9999; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+}
+#loading.show { display: flex; }
+.spinner { width: 42px; height: 42px; border: 4px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#loading-msg { font-size: .9rem; color: var(--muted); }
+
+/* ── Responsive ── */
+@media (max-width: 600px) {
+  .tab-btn { padding: 11px 12px; font-size: .78rem; }
+  .kpi-val { font-size: 1.3rem; }
+  .exp-grid { grid-template-columns: 1fr; }
+  .toolbar input[type=text] { width: 140px; }
+}
+</style>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div><div id="loading-msg">Reading file…</div></div>
+<div id="toast"></div>
+
+<!-- TOP BAR -->
+<div id="topbar">
+  <div id="topbar-title">
+    <h1>CTB Shortage Dashboard</h1>
+    <div id="topbar-date" class="topbar-date"></div>
+  </div>
+  <div id="topbar-health" style="display:none;"></div>
+  <button class="btn" onclick="resetApp()" style="display:none;" id="btn-reset">↩ New File</button>
+</div>
+
+<!-- UPLOAD SCREEN -->
+<div id="upload-screen">
+  <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+    <span class="icon">📊</span>
+    <h2>Upload your CTB file</h2>
+    <p>Tap to select your CTB Excel file from Files or Teams.<br>Works entirely in your browser — nothing is uploaded anywhere.</p>
+    <label class="upload-btn">Choose File</label>
+    <div class="supported-note">Supports .xlsx · .xlsm · .xls</div>
+  </div>
+  <input type="file" id="file-input" accept=".xlsx,.xlsm,.xls">
+</div>
+
+<!-- MAIN APP -->
+<div id="main">
+  <div id="nav">
+    <button class="tab-btn active" onclick="showTab('readiness',this)">📋 Readiness</button>
+    <button class="tab-btn" onclick="showTab('shortage',this)">📉 Shortages</button>
+    <button class="tab-btn" onclick="showTab('warning',this)">⚠️ Early Warning</button>
+    <button class="tab-btn" onclick="showTab('rootcause',this)">🏷 Root Cause</button>
+    <button class="tab-btn" onclick="showTab('tiaduf',this)">🔀 TIADUF</button>
+    <button class="tab-btn" onclick="showTab('expedite',this)">✉️ Expedite</button>
+    <button class="tab-btn" onclick="showTab('summary',this)">📄 Summary</button>
+  </div>
+
+  <!-- ── READINESS ── -->
+  <div id="tab-readiness" class="tab-panel active">
+    <div class="kpi-strip" id="kpi-strip"></div>
+    <div class="info-banner" id="sim-banner" style="display:none;"></div>
+    <div class="toolbar">
+      <input type="text" id="r-search" placeholder="Search product…" oninput="renderReadiness()">
+      <select id="r-status" onchange="renderReadiness()">
+        <option value="all">All statuses</option>
+        <option value="FULLY BLOCKED">Fully Blocked</option>
+        <option value="AT RISK">At Risk</option>
+        <option value="CLEAR">Clear</option>
+      </select>
+      <button class="btn ml-auto" onclick="exportCSV('readiness')">⬇ Export</button>
+    </div>
+    <div class="tbl-wrap">
+      <table><thead><tr>
+        <th onclick="rsort('rank')" style="width:36px">#</th>
+        <th onclick="rsort('top')" style="width:130px">Product</th>
+        <th onclick="rsort('top_desc')" style="width:220px">Description</th>
+        <th onclick="rsort('due_str')" style="width:90px">Due</th>
+        <th onclick="rsort('active_qty')" style="width:70px">Active Qty</th>
+        <th onclick="rsort('sim_qty')" style="width:65px">Sim Qty</th>
+        <th onclick="rsort('total_qty')" style="width:65px">Total</th>
+        <th onclick="rsort('n_short')" style="width:65px">Shortage Items</th>
+        <th onclick="rsort('pct_short')" style="width:60px">% Risk</th>
+        <th style="width:60px">E2S</th>
+        <th style="width:60px">NOPO</th>
+        <th onclick="rsort('days_away')" style="width:70px">Days</th>
+        <th onclick="rsort('status')" style="width:130px">Status</th>
+      </tr></thead>
+      <tbody id="r-body"></tbody></table>
+    </div>
+  </div>
+
+  <!-- ── SHORTAGES ── -->
+  <div id="tab-shortage" class="tab-panel">
+    <div class="toolbar">
+      <select id="s-prod" onchange="renderShortage()" style="max-width:260px;"></select>
+      <input type="text" id="s-search" placeholder="Search item / supplier…" oninput="renderShortage()">
+      <select id="s-type" onchange="renderShortage()">
+        <option value="all">All types</option>
+        <option value="EL">EL</option><option value="ME">ME</option>
+        <option value="SMT">SMT</option><option value="T.H">T.H</option>
+        <option value="AS">AS</option><option value="PCK">PCK</option>
+      </select>
+      <select id="s-wo" onchange="renderShortage()">
+        <option value="all">Active + Sim</option>
+        <option value="active">Active only</option>
+        <option value="sim">Sim only</option>
+      </select>
+      <span id="s-count" style="font-size:.78rem;color:var(--muted);"></span>
+      <button class="btn ml-auto" onclick="exportCSV('shortage')">⬇ Export</button>
+    </div>
+    <div class="tbl-wrap">
+      <table><thead><tr>
+        <th style="width:60px">WO</th>
+        <th style="width:110px">Item</th>
+        <th style="width:200px">Description</th>
+        <th style="width:38px">Type</th>
+        <th style="width:70px">Short Qty</th>
+        <th style="width:65px">LIM</th>
+        <th style="width:180px">Remarks</th>
+        <th style="width:160px">Supplier</th>
+        <th style="width:55px">LT (d)</th>
+        <th style="width:90px">Supply Due</th>
+        <th style="width:65px">Days Late</th>
+        <th class="sol-hdr" style="width:200px">★ Alt Part</th>
+        <th class="sol-hdr" style="width:200px">★ Alt Supplier</th>
+        <th class="sol-hdr" style="width:200px">★ Split Order</th>
+        <th class="sol-hdr" style="width:200px">★ Reallocate</th>
+        <th class="sol-hdr" style="width:200px">★ Partial Build</th>
+      </tr></thead>
+      <tbody id="s-body"></tbody></table>
+    </div>
+  </div>
+
+  <!-- ── EARLY WARNING ── -->
+  <div id="tab-warning" class="tab-panel">
+    <div class="warn-banner">⚠ Parts currently on track but projected to go short. Act before they escalate.</div>
+    <div class="toolbar">
+      <div class="slider-row">
+        <span style="font-size:.8rem;color:var(--muted);">Horizon:</span>
+        <input type="range" id="wk-range" min="1" max="12" value="4" oninput="document.getElementById('wk-val').textContent=this.value+' wks';renderWarning()">
+        <span id="wk-val" style="font-size:.85rem;font-weight:700;color:var(--accent);min-width:44px;">4 wks</span>
+      </div>
+      <input type="text" id="w-search" placeholder="Search…" oninput="renderWarning()">
+      <button class="btn ml-auto" onclick="exportCSV('warning')">⬇ Export</button>
+    </div>
+    <div class="tbl-wrap">
+      <table><thead><tr>
+        <th style="width:60px">WO</th>
+        <th style="width:110px">Item</th>
+        <th style="width:180px">Description</th>
+        <th style="width:130px">Product</th>
+        <th style="width:88px">Due</th>
+        <th style="width:65px">Days Away</th>
+        <th style="width:80px">Proj. Gap</th>
+        <th style="width:70px">Risk</th>
+        <th style="width:160px">Supplier</th>
+        <th class="sol-hdr" style="width:200px">★ Alt Supplier</th>
+        <th class="sol-hdr" style="width:200px">★ Partial Build</th>
+      </tr></thead>
+      <tbody id="w-body"></tbody></table>
+    </div>
+  </div>
+
+  <!-- ── ROOT CAUSE ── -->
+  <div id="tab-rootcause" class="tab-panel">
+    <div class="kpi-strip" id="rc-kpi" style="margin-bottom:14px;"></div>
+    <div class="toolbar">
+      <select id="rc-filter" onchange="renderRC()">
+        <option value="all">All root causes</option>
+      </select>
+      <input type="text" id="rc-search" placeholder="Search item / supplier…" oninput="renderRC()">
+      <button class="btn ml-auto" onclick="exportCSV('rootcause')">⬇ Export</button>
+    </div>
+    <div class="tbl-wrap">
+      <table><thead><tr>
+        <th style="width:60px">WO</th>
+        <th style="width:110px">Item</th>
+        <th style="width:180px">Description</th>
+        <th style="width:38px">Type</th>
+        <th style="width:130px">Product</th>
+        <th style="width:160px">Supplier</th>
+        <th style="width:55px">LT (d)</th>
+        <th style="width:88px">Due</th>
+        <th style="width:88px">Supply Due</th>
+        <th style="width:150px">Root Cause</th>
+        <th class="sol-hdr" style="width:200px">★ Alt Part</th>
+        <th class="sol-hdr" style="width:200px">★ Alt Supplier</th>
+        <th class="sol-hdr" style="width:200px">★ Reallocate</th>
+      </tr></thead>
+      <tbody id="rc-body"></tbody></table>
+    </div>
+  </div>
+
+  <!-- ── TIADUF ── -->
+  <div id="tab-tiaduf" class="tab-panel">
+    <div class="info-banner">🔀 Components flagged for priority allocation across multiple products. Review with planning before reallocating.</div>
+    <div class="toolbar">
+      <input type="text" id="t-search" placeholder="Search item / product…" oninput="renderTiaduf()">
+      <button class="btn ml-auto" onclick="exportCSV('tiaduf')">⬇ Export</button>
+    </div>
+    <div class="tbl-wrap">
+      <table><thead><tr>
+        <th style="width:60px">WO</th>
+        <th style="width:110px">Item</th>
+        <th style="width:180px">Description</th>
+        <th style="width:38px">Type</th>
+        <th style="width:130px">Product</th>
+        <th style="width:88px">Due</th>
+        <th style="width:70px">Short Qty</th>
+        <th style="width:280px">TIADUF Note</th>
+        <th style="width:160px">Supplier</th>
+        <th class="sol-hdr" style="width:200px">★ Reallocate</th>
+        <th class="sol-hdr" style="width:200px">★ Alt Part</th>
+        <th class="sol-hdr" style="width:200px">★ Partial Build</th>
+      </tr></thead>
+      <tbody id="t-body"></tbody></table>
+    </div>
+  </div>
+
+  <!-- ── EXPEDITE ── -->
+  <div id="tab-expedite" class="tab-panel">
+    <div class="exp-grid">
+      <div>
+        <div class="form-group">
+          <label>Select component to expedite</label>
+          <select id="exp-select" onchange="buildEmail()"></select>
+        </div>
+        <div class="form-group">
+          <label>Your name</label>
+          <input type="text" id="exp-name" placeholder="e.g. David Cohen" oninput="buildEmail()">
+        </div>
+        <div class="form-group">
+          <label>Urgency tone</label>
+          <select id="exp-tone" onchange="buildEmail()">
+            <option value="standard">Standard — professional request</option>
+            <option value="urgent">Urgent — production at risk</option>
+            <option value="critical">Critical — line stoppage imminent</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Additional notes (optional)</label>
+          <textarea id="exp-notes" placeholder="e.g. Customer delivery on June 1st depends on this WO." oninput="buildEmail()"></textarea>
+        </div>
+        <div class="form-group" id="exp-subject-box">
+          <label>Subject</label>
+          <input type="text" id="exp-subject" readonly>
+        </div>
+      </div>
+      <div>
+        <div class="form-group">
+          <label>Email body</label>
+          <div id="exp-output"></div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+          <button class="btn btn-accent" onclick="copyExp('body')">📋 Copy body</button>
+          <button class="btn" onclick="copyExp('full')">📋 Copy with subject</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SUMMARY ── -->
+  <div id="tab-summary" class="tab-panel">
+    <div class="toolbar">
+      <select id="sum-aud" onchange="buildSummary()">
+        <option value="mgmt">Senior Management</option>
+        <option value="prod">Production / Planning</option>
+      </select>
+      <input type="text" id="sum-author" placeholder="Prepared by…" oninput="buildSummary()" style="width:180px;">
+      <button class="btn btn-accent ml-auto" onclick="copySummary()">📋 Copy Report</button>
+    </div>
+    <div id="sum-output"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     SheetJS (reads .xlsx in browser — iPad + Windows)
+     ══════════════════════════════════════════════════ -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+'use strict';
+
+// ════════════════════════════════════
+// STATE
+// ════════════════════════════════════
+let DATA = [];          // all parsed component rows
+let PRODUCTS = [];      // product-level summaries
+let ALL_SHORTS = [];    // flat shortage rows with solutions
+let ITEM_TO_TOPS = {};  // item -> [{top, due, short}]
+
+let rSortCol = 'days_away', rSortDir = 1;
+const TODAY = new Date(); TODAY.setHours(0,0,0,0);
+const TODAY_STR = TODAY.toLocaleDateString('en-GB');
+
+// ════════════════════════════════════
+// FILE UPLOAD
+// ════════════════════════════════════
+const fileInput = document.getElementById('file-input');
+const dropZone  = document.getElementById('drop-zone');
+
+fileInput.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+});
+
+function loadFile(file) {
+  showLoading('Reading ' + file.name + '…');
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+      // Find CTB sheet — look for sheet named 'CTB' first, else first sheet
+      const sheetName = wb.SheetNames.find(n => n.trim().toUpperCase() === 'CTB') || wb.SheetNames[0];
+      showLoading('Parsing ' + sheetName + '…');
+      const ws = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false });
+      setTimeout(() => { parseAndRender(rows, file.name); }, 50);
+    } catch(err) {
+      hideLoading();
+      alert('Could not read file: ' + err.message + '\n\nMake sure it is a .xlsx CTB file.');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ════════════════════════════════════
+// PARSE CTB ROWS
+// ════════════════════════════════════
+function parseDate(v) {
+  if (!v) return null;
+  if (v instanceof Date) return v;
+  if (typeof v === 'string' && v.trim()) {
+    // Try DD/MM/YYYY, YYYY-MM-DD, and JS native
+    const parts = v.trim().split(/[\/\-]/);
+    if (parts.length === 3) {
+      const d1 = new Date(v);
+      if (!isNaN(d1)) return d1;
+      // Try DD/MM/YYYY
+      const d2 = new Date(`${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`);
+      if (!isNaN(d2)) return d2;
+    }
+  }
+  return null;
+}
+
+function flt(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+function fd(d)  { return d instanceof Date ? d.toLocaleDateString('en-GB') : (d || '—'); }
+function daysDiff(d) { if (!d) return 9999; return Math.ceil((d - TODAY) / 86400000); }
+
+// Detect column layout from header row
+function detectCols(headerRow) {
+  // Ribbon layout (CTB_28_05): 28 cols, Avail Stck at col 9
+  // Old layout (CTB_28_04):  different col map
+  // Strategy: scan header for key labels, fall back to positional
+  const h = (headerRow || []).map(v => String(v || '').trim().toUpperCase());
+  const find = (...labels) => { for (const l of labels) { const i = h.indexOf(l); if (i >= 0) return i; } return -1; };
+  const TOP       = find('TOP','TOP PART') >= 0 ? find('TOP','TOP PART') : 0;
+  const TOP_DESC  = TOP + 1;
+  const TOP_DUE   = find('PLAN DATE','DUE DATE','PLANNED DUE') >= 0 ? find('PLAN DATE','DUE DATE','PLANNED DUE') : 2;
+  const TOP_QTY   = find('QTY','QUANTITY','QTY TOP') >= 0 ? find('QTY','QUANTITY','QTY TOP') : 4;
+  const ITEM      = find('ITEM','PART NUMBER','COMPONENT') >= 0 ? find('ITEM','PART NUMBER','COMPONENT') : 6;
+  const ITEM_DESC = ITEM + 1;
+  const TYPE      = find('TYPE','COMP TYPE') >= 0 ? find('TYPE','COMP TYPE') : 8;
+  // Ribbon-specific: Av Stck at 9, remarks at 11, TIADUF at 12, ONO at 14
+  const AV_STCK   = 9;
+  const REMARKS   = find('REMARKS','REMARK') >= 0 ? find('REMARKS','REMARK') : 11;
+  const TIADUF    = find('TIADUF') >= 0 ? find('TIADUF') : 12;
+  const LEVEL     = 15; const QPA = 16;
+  const NEED      = find('NEED QTY','NEED') >= 0 ? find('NEED QTY','NEED') : 18;
+  const SHORT     = find('TOTAL SHORT','SHORT QTY','SHORT') >= 0 ? find('TOTAL SHORT','SHORT QTY','SHORT') : 19;
+  const LIM       = find('LIMIT','LIM') >= 0 ? find('LIMIT','LIM') : 20;
+  const ORDER_ID  = find('ORDER ID','ORDER_ID','PO NUMBER') >= 0 ? find('ORDER ID','ORDER_ID','PO NUMBER') : 21;
+  const WO_STATUS = find('STATUS') >= 0 ? find('STATUS') : 22;
+  const SUP_QTY   = 23; const SUP_DUE = 24;
+  const SUPPLIER  = find('SUPPLIER','VENDOR') >= 0 ? find('SUPPLIER','VENDOR') : 25;
+  const LT        = find('LEAD TIME','LT','L/T') >= 0 ? find('LEAD TIME','LT','L/T') : 26;
+  const PLANNER   = 27;
+  return { TOP, TOP_DESC, TOP_DUE, TOP_QTY, ITEM, ITEM_DESC, TYPE, AV_STCK,
+           REMARKS, TIADUF, LEVEL, QPA, NEED, SHORT, LIM, ORDER_ID, WO_STATUS,
+           SUP_QTY, SUP_DUE, SUPPLIER, LT, PLANNER };
+}
+
+function parseAndRender(rows, filename) {
+  showLoading('Analyzing shortages…');
+  // Find header row
+  let hdrIdx = 0;
+  for (let i = 0; i < Math.min(10, rows.length); i++) {
+    const r = rows[i];
+    if (r && (String(r[0]||'').trim().toUpperCase() === 'TOP' || String(r[6]||'').trim().toUpperCase() === 'ITEM')) {
+      hdrIdx = i; break;
+    }
+  }
+  const C = detectCols(rows[hdrIdx]);
+
+  DATA = [];
+  for (let i = hdrIdx + 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || !r[C.TOP]) continue;
+    const top = String(r[C.TOP] || '').trim();
+    if (!top || top.toUpperCase() === 'TOP') continue;
+    const wo_status = String(r[C.WO_STATUS] || '');
+    DATA.push({
+      top,
+      top_desc:   String(r[C.TOP_DESC] || '').trim(),
+      due_top:    parseDate(r[C.TOP_DUE]),
+      qty_top:    flt(r[C.TOP_QTY]),
+      item:       String(r[C.ITEM] || '').trim(),
+      item_desc:  String(r[C.ITEM_DESC] || '').trim(),
+      type:       String(r[C.TYPE] || '').trim(),
+      avail:      String(r[C.AV_STCK] || '').trim().toUpperCase() === 'OK' ? 999999 : flt(r[C.AV_STCK]),
+      ok_flag:    String(r[C.AV_STCK] || '').trim().toUpperCase() === 'OK',
+      remarks:    String(r[C.REMARKS] || '').trim(),
+      tiaduf:     String(r[C.TIADUF] || '').trim(),
+      qty_per:    flt(r[C.QPA]) || 1,
+      need:       flt(r[C.NEED]),
+      short:      flt(r[C.SHORT]),
+      lim:        flt(r[C.LIM]),
+      order_id:   String(r[C.ORDER_ID] || '').trim(),
+      wo_status,
+      supply_qty: flt(r[C.SUP_QTY]),
+      due_supply: parseDate(r[C.SUP_DUE]),
+      supplier:   String(r[C.SUPPLIER] || '').trim(),
+      lt:         flt(r[C.LT]),
+      planner:    String(r[C.PLANNER] || '').trim(),
+      is_sim:     wo_status.includes('_Sim') || wo_status.includes('Sim'),
+    });
+  }
+
+  // Build ITEM_TO_TOPS for reallocation logic
+  ITEM_TO_TOPS = {};
+  DATA.forEach(c => {
+    if (c.short > 0) {
+      if (!ITEM_TO_TOPS[c.item]) ITEM_TO_TOPS[c.item] = [];
+      ITEM_TO_TOPS[c.item].push({ top: c.top, due: c.due_top, short: c.short });
+    }
+  });
+
+  buildProducts();
+  buildFlatShortages();
+  showLoading('Rendering…');
+  setTimeout(() => {
+    initUI(filename);
+    hideLoading();
+  }, 50);
+}
+
+// ════════════════════════════════════
+// PRODUCT SUMMARIES
+// ════════════════════════════════════
+function isShort(c) {
+  if (c.short > 0) return true;
+  if (c.lim > 0 && c.lim < c.need) return true;
+  const rem = c.remarks.toUpperCase();
+  if (rem.includes('LIM 0') || rem.includes('E2S') || rem.includes('NOPO')) return true;
+  return false;
+}
+
+function rootCause(c) {
+  const rem = c.remarks.toUpperCase();
+  if (rem.includes('E2S')) return 'E2S — End of Supply';
+  if (rem.includes('NOPO') || c.wo_status.includes('NOPO')) return 'No PO — NOPO';
+  if (!c.order_id || ['','none','planned'].includes(c.order_id.toLowerCase())) return 'No PO coverage';
+  if (rem.includes('ETA 2027') || c.lt > 365) return 'Long lead time (2027+)';
+  if (c.due_supply && c.due_top && c.due_supply > c.due_top) return 'PO arriving late';
+  if (c.lim > 0 && c.lim < c.need) return 'Partial supply — LIM';
+  if (rem.includes('LIM 0')) return 'No confirmed supply';
+  return 'Supplier delay risk';
+}
+
+function buildSolutions(c) {
+  const rem = c.remarks.toUpperCase();
+  const isE2S  = rem.includes('E2S');
+  const isNopo = rem.includes('NOPO') || c.wo_status.includes('NOPO');
+  const hasAlt = rem.includes('ALT');
+  const supLate = c.due_supply && c.due_top && c.due_supply > c.due_top;
+  const lateDays = supLate ? Math.ceil((c.due_supply - c.due_top) / 86400000) : 0;
+  const shared = (ITEM_TO_TOPS[c.item] || []).filter(x => x.top !== c.top);
+  const ltInt = Math.round(c.lt);
+  const qpa = c.qty_per || 1;
+
+  // Alt part
+  let altPart = '';
+  if (hasAlt) {
+    const m = c.remarks.match(/ALT\s*[-:]\s*([\w\-]+)/i);
+    altPart = m ? `Use ALT: ${m[1]} — validate form/fit/function` : 'Alt part in remarks — verify PN and approve';
+  } else if (isE2S) {
+    altPart = 'E2S — find alternate PN urgently; check AVL';
+  } else if (isNopo && c.short > 0) {
+    altPart = 'No PO — check AVL for alternative PN with shorter LT';
+  }
+
+  // Alt supplier
+  let altSup = '';
+  if (isE2S) {
+    altSup = `E2S from ${c.supplier} — source via broker or alternate distributor immediately`;
+  } else if (lateDays > 0) {
+    const orderBy = c.due_top && ltInt ? new Date(c.due_top.getTime() - ltInt * 86400000).toLocaleDateString('en-GB') : 'ASAP';
+    altSup = `PO late by ${lateDays}d — expedite ${c.supplier} or spot-buy ${Math.round(c.short)} units. Alt order by ${orderBy}`;
+  } else if (isNopo) {
+    const orderBy = c.due_top && ltInt ? new Date(c.due_top.getTime() - ltInt * 86400000).toLocaleDateString('en-GB') : 'ASAP';
+    altSup = `No PO — issue RFQ to alt distributors. Must order by ${orderBy} (LT ${ltInt}d)`;
+  } else if (c.lt > 90 && c.short > 0) {
+    altSup = `LT ${ltInt}d too long — find spot market or distributor with faster availability`;
+  }
+
+  // Split order
+  let split = '';
+  if (c.lim > 0 && c.lim < c.need) {
+    const gap = Math.round(c.need - c.lim);
+    split = `LIM ${Math.round(c.lim)} confirmed vs ${Math.round(c.need)} needed — place supplemental PO for ${gap} units`;
+  } else if (lateDays > 0 && c.short > 0) {
+    split = `Split: expedite partial from ${c.supplier} for ${fd(c.due_top)}; source ${Math.round(c.short)} shortage units from spot market`;
+  } else if (isE2S && c.avail > 0) {
+    split = `E2S: ${Math.round(c.avail)} on-hand may cover partial build; source balance from broker`;
+  }
+
+  // Realloc
+  let realloc = '';
+  if (c.tiaduf && c.tiaduf.length > 2) {
+    realloc = `TIADUF: ${c.tiaduf.substring(0, 140)} — review allocation priority with planning`;
+  } else if (shared.length > 0) {
+    const latest = shared.sort((a,b) => (b.due||new Date(0)) - (a.due||new Date(0)))[0];
+    realloc = `Also short on ${shared.length} other product(s) — consider realloc from later-due: ${latest.top} (${fd(latest.due)})`;
+  }
+
+  // Partial build
+  let partial = '';
+  const availForBuild = c.ok_flag ? 0 : (c.avail > 0 ? c.avail : 0);
+  if (availForBuild > 0 && c.short > 0) {
+    const units = Math.floor(availForBuild / qpa);
+    partial = units > 0
+      ? `Can build ~${units} unit(s) with ${Math.round(availForBuild)} on-hand (QPA=${qpa}); ${Math.round(c.short)} units still need supply`
+      : `On-hand ${Math.round(availForBuild)} < QPA ${qpa} — insufficient for even 1 unit`;
+  } else if (c.lim > 0 && c.lim < c.need) {
+    partial = `LIM allows partial build of ~${Math.floor(c.lim/qpa)} unit(s); balance needs supply`;
+  }
+
+  return { altPart, altSup, split, realloc, partial };
+}
+
+function buildProducts() {
+  const byTop = {};
+  DATA.forEach(c => {
+    if (!byTop[c.top]) byTop[c.top] = { active: [], sim: [] };
+    if (c.is_sim) byTop[c.top].sim.push(c);
+    else          byTop[c.top].active.push(c);
+  });
+
+  PRODUCTS = Object.entries(byTop).map(([top, grp]) => {
+    const all = [...grp.active, ...grp.sim];
+    const td = all[0];
+    const seenA = {}, seenS = {};
+    grp.active.forEach(c => { if (!(c.order_id in seenA)) seenA[c.order_id] = c.qty_top; });
+    grp.sim.forEach(c =>    { if (!(c.order_id in seenS)) seenS[c.order_id] = c.qty_top; });
+    const active_qty = Object.values(seenA).reduce((s,v)=>s+v,0);
+    const sim_qty    = Object.values(seenS).reduce((s,v)=>s+v,0);
+    const shortComps = all.filter(isShort);
+    const has_e2s  = shortComps.some(c => c.remarks.toUpperCase().includes('E2S'));
+    const has_nopo = shortComps.some(c => c.remarks.toUpperCase().includes('NOPO') || c.wo_status.includes('NOPO'));
+    const n_short  = shortComps.length;
+    const status   = n_short === 0 ? 'CLEAR' : (has_e2s || has_nopo ? 'FULLY BLOCKED' : 'AT RISK');
+    return {
+      top, top_desc: td.top_desc, due: td.due_top,
+      due_str: fd(td.due_top),
+      active_qty, sim_qty, total_qty: active_qty + sim_qty,
+      has_sim: grp.sim.length > 0, has_active: grp.active.length > 0,
+      n_all: all.length, n_short, pct_short: all.length ? Math.round(n_short/all.length*100) : 0,
+      status, has_e2s, has_nopo,
+      days_away: daysDiff(td.due_top),
+      all_rows: all, short_comps: shortComps,
+    };
+  });
+
+  PRODUCTS.sort((a,b) => {
+    const so = { 'FULLY BLOCKED':0,'AT RISK':1,'CLEAR':2 };
+    return (so[a.status]??9) - (so[b.status]??9) || (a.days_away - b.days_away);
+  });
+  PRODUCTS.forEach((p,i) => p.rank = i+1);
+}
+
+function buildFlatShortages() {
+  ALL_SHORTS = [];
+  PRODUCTS.forEach(p => {
+    p.short_comps.forEach(c => {
+      const rc = rootCause(c);
+      const sols = buildSolutions(c);
+      ALL_SHORTS.push({ ...c, prod_status: p.status, rc, days_away: daysDiff(c.due_top), ...sols });
+    });
+  });
+  ALL_SHORTS.sort((a,b) => a.days_away - b.days_away || -(a.short - b.short));
+}
+
+// ════════════════════════════════════
+// UI INIT
+// ════════════════════════════════════
+function initUI(filename) {
+  const n_blocked = PRODUCTS.filter(p=>p.status==='FULLY BLOCKED').length;
+  const n_risk    = PRODUCTS.filter(p=>p.status==='AT RISK').length;
+  const n_clear   = PRODUCTS.filter(p=>p.status==='CLEAR').length;
+  const n_mixed   = PRODUCTS.filter(p=>p.has_sim&&p.has_active).length;
+  const tot_a     = PRODUCTS.reduce((s,p)=>s+p.active_qty,0);
+  const tot_s     = PRODUCTS.reduce((s,p)=>s+p.sim_qty,0);
+
+  // KPI strip
+  document.getElementById('kpi-strip').innerHTML = [
+    ['Total Products', PRODUCTS.length, '', ''],
+    ['Fully Blocked',  n_blocked, 'var(--red)', ''],
+    ['At Risk',        n_risk,    'var(--orange)', ''],
+    ['Clear',          n_clear,   'var(--green)', ''],
+    ['E2S Items',      ALL_SHORTS.filter(c=>c.rc.includes('E2S')).length, 'var(--red)', ''],
+    ['No PO / NOPO',   ALL_SHORTS.filter(c=>c.rc.includes('No PO')).length, 'var(--orange)', ''],
+    ['Active Qty',     Math.round(tot_a), 'var(--accent)', ''],
+    ['Sim Qty',        Math.round(tot_s), 'var(--sim)', 'Planned'],
+  ].map(([lbl,val,fg,sub]) =>
+    `<div class="kpi-card"><div class="kpi-label">${lbl}</div><div class="kpi-val" style="color:${fg||'var(--text)'}">${val}</div>${sub?`<div class="kpi-sub">${sub}</div>`:''}</div>`
+  ).join('');
+
+  // Sim banner
+  if (n_mixed > 0) {
+    document.getElementById('sim-banner').style.display='';
+    document.getElementById('sim-banner').innerHTML = `🔵 <strong>${n_mixed} products</strong> have both Active WOs and Simulation WOs. Sim WOs (planned demand, not yet released) are shown in <span style="color:var(--sim)">purple</span> and included in shortage analysis.`;
+  }
+
+  // Health badge
+  const hEl = document.getElementById('topbar-health');
+  hEl.style.display = '';
+  hEl.textContent = n_blocked > 3 ? '⚠ CRITICAL' : n_blocked > 0 ? '⚡ ELEVATED' : '✓ STABLE';
+  hEl.className = 'badge ' + (n_blocked > 3 ? 'b-blocked health-critical' : n_blocked > 0 ? 'b-risk health-elevated' : 'b-clear health-stable');
+
+  document.getElementById('topbar-date').textContent = filename + ' · ' + TODAY_STR;
+  document.getElementById('btn-reset').style.display = '';
+
+  // Shortage product selector
+  const sel = document.getElementById('s-prod');
+  sel.innerHTML = PRODUCTS.filter(p=>p.n_short>0).map(p =>
+    `<option value="${p.top}">${p.top} — ${p.top_desc.substring(0,40)} (${p.n_short} short)</option>`
+  ).join('');
+
+  // Expedite selector
+  buildExpSelect();
+
+  // RC filter
+  const rcCounts = {};
+  ALL_SHORTS.forEach(c => { rcCounts[c.rc] = (rcCounts[c.rc]||0) + 1; });
+  const rcSel = document.getElementById('rc-filter');
+  rcSel.innerHTML = '<option value="all">All root causes</option>' +
+    Object.entries(rcCounts).sort((a,b)=>b[1]-a[1]).map(([k,v])=>
+      `<option value="${k}">${k} (${v})</option>`
+    ).join('');
+
+  // RC KPI
+  document.getElementById('rc-kpi').innerHTML = Object.entries(rcCounts).sort((a,b)=>b[1]-a[1]).map(([k,v]) => {
+    const fg = k.includes('E2S') ? 'var(--red)' : k.includes('No PO') ? 'var(--orange)' : k.includes('late') ? 'var(--sol2)' : 'var(--sol3)';
+    return `<div class="kpi-card"><div class="kpi-label" style="font-size:.65rem">${k}</div><div class="kpi-val" style="font-size:1.3rem;color:${fg}">${v}</div></div>`;
+  }).join('');
+
+  document.getElementById('upload-screen').style.display = 'none';
+  document.getElementById('main').style.display = 'block';
+
+  renderReadiness();
+  renderShortage();
+  renderWarning();
+  renderRC();
+  renderTiaduf();
+  buildSummary();
+}
+
+// ════════════════════════════════════
+// RENDERERS
+// ════════════════════════════════════
+function showTab(id, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  btn.classList.add('active');
+}
+
+function rsort(col) {
+  if (rSortCol===col) rSortDir*=-1; else { rSortCol=col; rSortDir=1; }
+  renderReadiness();
+}
+
+const ST_BADGE = { 'FULLY BLOCKED':'b-blocked','AT RISK':'b-risk','CLEAR':'b-clear' };
+
+function renderReadiness() {
+  const srch = document.getElementById('r-search').value.toLowerCase();
+  const flt  = document.getElementById('r-status').value;
+  let rows = PRODUCTS.filter(p => {
+    if (flt!=='all' && p.status!==flt) return false;
+    if (srch && ![p.top,p.top_desc].join(' ').toLowerCase().includes(srch)) return false;
+    return true;
+  });
+  rows.sort((a,b) => {
+    let va=a[rSortCol], vb=b[rSortCol];
+    if (typeof va==='string') return rSortDir*va.localeCompare(vb);
+    return rSortDir*((va||0)-(vb||0));
+  });
+  const progColor = pct => pct===100?'var(--green)':pct>=50?'var(--orange)':'var(--red)';
+  document.getElementById('r-body').innerHTML = rows.map(p => {
+    const pct = p.pct_short;
+    const dc  = p.days_away < 0 ? 'var(--red)' : p.days_away < 14 ? 'var(--orange)' : p.days_away < 30 ? 'var(--sol2)' : 'var(--muted)';
+    const wo  = p.has_sim && p.has_active ? `<span class="badge b-sim">A+S</span>` : p.has_sim ? `<span class="badge b-sim">SIM</span>` : `<span class="badge b-act">ACT</span>`;
+    return `<tr class="${p.status==='FULLY BLOCKED'?'r-critical':''}">
+      <td style="color:var(--muted);font-size:.75rem">${p.rank}</td>
+      <td style="font-weight:700;color:var(--accent2);font-size:.82rem">${p.top} ${wo}</td>
+      <td><span class="trunc" title="${p.top_desc}">${p.top_desc}</span></td>
+      <td style="color:var(--muted);font-size:.8rem">${p.due_str}</td>
+      <td style="text-align:right">${p.active_qty?Math.round(p.active_qty):'—'}</td>
+      <td style="text-align:right;color:var(--sim)">${p.sim_qty?Math.round(p.sim_qty):'—'}</td>
+      <td style="text-align:right;font-weight:700">${Math.round(p.total_qty)}</td>
+      <td style="text-align:right;color:${p.n_short>0?'var(--orange)':'var(--green)'};font-weight:700">${p.n_short}</td>
+      <td><div class="prog"><div class="prog-fill" style="width:${pct}%;background:${progColor(100-pct)}"></div></div> <span style="font-size:.75rem;color:${progColor(100-pct)}">${pct}%</span></td>
+      <td>${p.has_e2s?`<span class="badge b-e2s">E2S</span>`:'<span style="color:var(--border)">—</span>'}</td>
+      <td>${p.has_nopo?`<span class="badge b-warn">NOPO</span>`:'<span style="color:var(--border)">—</span>'}</td>
+      <td style="font-weight:700;color:${dc}">${p.days_away<9999?p.days_away:'—'}</td>
+      <td><span class="badge ${ST_BADGE[p.status]}">${p.status}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderShortage() {
+  const prod  = PRODUCTS.find(p=>p.top===document.getElementById('s-prod').value);
+  if (!prod) return;
+  const srch  = document.getElementById('s-search').value.toLowerCase();
+  const typeF = document.getElementById('s-type').value;
+  const woF   = document.getElementById('s-wo').value;
+  let comps   = prod.all_rows.filter(c => {
+    if (!isShort(c)) return false;
+    if (typeF!=='all' && c.type!==typeF) return false;
+    if (woF==='active' && c.is_sim) return false;
+    if (woF==='sim' && !c.is_sim) return false;
+    if (srch && ![c.item,c.item_desc,c.supplier].join(' ').toLowerCase().includes(srch)) return false;
+    return true;
+  });
+  document.getElementById('s-count').textContent = `${comps.length} component${comps.length!==1?'s':''}`;
+  document.getElementById('s-body').innerHTML = comps.map((c,i) => {
+    const rc   = rootCause(c);
+    const sols = buildSolutions(c);
+    const late = c.due_supply && c.due_top && c.due_supply > c.due_top ? Math.ceil((c.due_supply-c.due_top)/86400000) : 0;
+    const woBadge = c.is_sim ? '<span class="badge b-sim">SIM</span>' : '<span class="badge b-act">ACT</span>';
+    return `<tr class="${c.is_sim?'r-sim':''}">
+      <td>${woBadge}</td>
+      <td style="font-family:monospace;font-weight:700;font-size:.8rem;color:var(--accent2)">${c.item}</td>
+      <td><span class="trunc" title="${c.item_desc}">${c.item_desc}</span></td>
+      <td style="text-align:center">${c.type}</td>
+      <td style="text-align:right;font-weight:700;color:${c.short>0?'var(--red)':'var(--orange)'}">${c.short?Math.round(c.short):'—'}</td>
+      <td style="text-align:right;color:var(--sol2)">${c.lim?Math.round(c.lim):'—'}</td>
+      <td style="font-size:.75rem;color:var(--muted)">${c.remarks||'—'}</td>
+      <td style="font-size:.78rem"><span class="trunc" title="${c.supplier}">${c.supplier||'—'}</span></td>
+      <td style="text-align:right">${c.lt?Math.round(c.lt):'—'}</td>
+      <td style="font-size:.78rem;color:${late>0?'var(--orange)':'var(--muted)'}">${fd(c.due_supply)}</td>
+      <td style="font-weight:700;color:${late>0?'var(--orange)':'var(--muted)'}">${late?'+'+late+'d':'—'}</td>
+      <td class="sol-cell">${sols.altPart||'<span class="sol-empty">—</span>'}</td>
+      <td class="sol-cell">${sols.altSup||'<span class="sol-empty">—</span>'}</td>
+      <td class="sol-cell sol2-cell">${sols.split||'<span class="sol-empty">—</span>'}</td>
+      <td class="sol-cell sol3-cell">${sols.realloc||'<span class="sol-empty">—</span>'}</td>
+      <td class="sol-cell sol2-cell">${sols.partial||'<span class="sol-empty">—</span>'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderWarning() {
+  const horizonDays = parseInt(document.getElementById('wk-range').value) * 7;
+  const srch = document.getElementById('w-search').value.toLowerCase();
+  const rows = ALL_SHORTS.filter(c => {
+    const d = c.days_away;
+    if (d <= 0 || d > horizonDays) return false;
+    if (srch && ![c.item,c.item_desc,c.supplier,c.top].join(' ').toLowerCase().includes(srch)) return false;
+    return true;
+  });
+  const riskBadge = d => d<=7?'<span class="badge b-blocked">HIGH</span>':d<=14?'<span class="badge b-risk">MED</span>':'<span class="badge b-info">LOW</span>';
+  document.getElementById('w-body').innerHTML = rows.length ? rows.map(c => {
+    const sols = buildSolutions(c);
+    const wb = c.is_sim ? '<span class="badge b-sim">SIM</span>' : '<span class="badge b-act">ACT</span>';
+    return `<tr class="${c.is_sim?'r-sim':''}">
+      <td>${wb}</td>
+      <td style="font-family:monospace;font-weight:700;font-size:.8rem;color:var(--accent2)">${c.item}</td>
+      <td><span class="trunc" title="${c.item_desc}">${c.item_desc}</span></td>
+      <td style="font-size:.78rem;color:var(--accent2)">${c.top}</td>
+      <td style="font-size:.78rem;color:var(--muted)">${fd(c.due_top)}</td>
+      <td style="font-weight:700;color:${c.days_away<=7?'var(--red)':c.days_away<=14?'var(--orange)':'var(--sol2)'}">${c.days_away}</td>
+      <td style="text-align:right;font-weight:700;color:var(--orange)">${c.short?Math.round(c.short):'—'}</td>
+      <td>${riskBadge(c.days_away)}</td>
+      <td style="font-size:.78rem"><span class="trunc" title="${c.supplier}">${c.supplier||'—'}</span></td>
+      <td class="sol-cell">${sols.altSup||'<span class="sol-empty">—</span>'}</td>
+      <td class="sol-cell sol2-cell">${sols.partial||'<span class="sol-empty">—</span>'}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="11" style="padding:24px;text-align:center;color:var(--muted)">No early warnings in selected horizon.</td></tr>`;
+}
+
+function renderRC() {
+  const flt  = document.getElementById('rc-filter').value;
+  const srch = document.getElementById('rc-search').value.toLowerCase();
+  let rows = ALL_SHORTS.filter(c => {
+    if (flt!=='all' && c.rc!==flt) return false;
+    if (srch && ![c.item,c.item_desc,c.supplier,c.top].join(' ').toLowerCase().includes(srch)) return false;
+    return true;
+  });
+  const rcFg = rc => rc.includes('E2S')?'var(--red)':rc.includes('No PO')?'var(--orange)':rc.includes('late')?'var(--sol2)':'var(--sol3)';
+  const late = c => c.due_supply && c.due_top && c.due_supply > c.due_top;
+  document.getElementById('rc-body').innerHTML = rows.map((c,i) => {
+    const sols = buildSolutions(c);
+    const wb = c.is_sim ? '<span class="badge b-sim">SIM</span>' : '<span class="badge b-act">ACT</span>';
+    return `<tr class="${c.is_sim?'r-sim':''}">
+      <td>${wb}</td>
+      <td style="font-family:monospace;font-weight:700;font-size:.8rem;color:var(--accent2)">${c.item}</td>
+      <td><span class="trunc" title="${c.item_desc}">${c.item_desc}</span></td>
+      <td style="text-align:center">${c.type}</td>
+      <td style="font-size:.78rem;color:var(--accent2)">${c.top}</td>
+      <td style="font-size:.78rem"><span class="trunc" title="${c.supplier}">${c.supplier||'—'}</span></td>
+      <td style="text-align:right">${c.lt?Math.round(c.lt):'—'}</td>
+      <td style="font-size:.78rem;color:var(--muted)">${fd(c.due_top)}</td>
+      <td style="font-size:.78rem;color:${late(c)?'var(--orange)':'var(--muted)'}">${fd(c.due_supply)}</td>
+      <td style="font-weight:700;color:${rcFg(c.rc)};font-size:.78rem">${c.rc}</td>
+      <td class="sol-cell">${sols.altPart||'<span class="sol-empty">—</span>'}</td>
+      <td class="sol-cell">${sols.altSup||'<span class="sol-empty">—</span>'}</td>
+      <td class="sol-cell sol3-cell">${sols.realloc||'<span class="sol-empty">—</span>'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderTiaduf() {
+  const srch = document.getElementById('t-search').value.toLowerCase();
+  const rows = ALL_SHORTS.filter(c => c.tiaduf && c.tiaduf.trim().length > 2 &&
+    (!srch || [c.item,c.item_desc,c.top,c.tiaduf].join(' ').toLowerCase().includes(srch)));
+  document.getElementById('t-body').innerHTML = rows.length ? rows.map(c => {
+    const sols = buildSolutions(c);
+    const wb = c.is_sim ? '<span class="badge b-sim">SIM</span>' : '<span class="badge b-act">ACT</span>';
+    return `<tr class="${c.is_sim?'r-sim':''}">
+      <td>${wb}</td>
+      <td style="font-family:monospace;font-weight:700;font-size:.8rem;color:var(--accent2)">${c.item}</td>
+      <td><span class="trunc" title="${c.item_desc}">${c.item_desc}</span></td>
+      <td style="text-align:center">${c.type}</td>
+      <td style="font-size:.78rem;color:var(--accent2)">${c.top}</td>
+      <td style="font-size:.78rem;color:var(--muted)">${fd(c.due_top)}</td>
+      <td style="text-align:right;font-weight:700;color:var(--orange)">${c.short?Math.round(c.short):'—'}</td>
+      <td style="font-size:.75rem;color:var(--sol2)">${c.tiaduf}</td>
+      <td style="font-size:.78rem"><span class="trunc" title="${c.supplier}">${c.supplier||'—'}</span></td>
+      <td class="sol-cell sol3-cell">${sols.realloc||'<span class="sol-empty">—</span>'}</td>
+      <td class="sol-cell">${sols.altPart||'<span class="sol-empty">—</span>'}</td>
+      <td class="sol-cell sol2-cell">${sols.partial||'<span class="sol-empty">—</span>'}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="12" style="padding:24px;text-align:center;color:var(--muted)">No TIADUF rows found.</td></tr>`;
+}
+
+// ════════════════════════════════════
+// EXPEDITE EMAIL
+// ════════════════════════════════════
+function buildExpSelect() {
+  const eligible = ALL_SHORTS.filter(c => c.is_sim === false);
+  document.getElementById('exp-select').innerHTML = eligible.length
+    ? eligible.map(c => `<option value="${c.top}|${c.item}">${c.item} — ${c.item_desc.substring(0,38)} (${c.top})</option>`).join('')
+    : '<option>No active shortage components found</option>';
+  buildEmail();
+}
+
+function buildEmail() {
+  const val  = document.getElementById('exp-select').value;
+  if (!val || !val.includes('|')) return;
+  const [top, item] = val.split('|');
+  const c    = ALL_SHORTS.find(x => x.top===top && x.item===item);
+  const prod = PRODUCTS.find(p => p.top===top);
+  if (!c || !prod) return;
+  const name  = document.getElementById('exp-name').value  || '[Your Name]';
+  const tone  = document.getElementById('exp-tone').value;
+  const notes = document.getElementById('exp-notes').value;
+  const pre   = tone==='critical'?'CRITICAL ESCALATION':tone==='urgent'?'URGENT EXPEDITE REQUEST':'Expedite Request';
+  document.getElementById('exp-subject').value = `${pre} — ${item} / ${top} — Required by ${fd(c.due_top)}`;
+  let urgLine = '';
+  if (tone==='urgent')   urgLine = '\nThis is a time-sensitive request. Production is at risk. Please confirm an accelerated delivery date within 24 hours.\n';
+  if (tone==='critical') urgLine = '\nWARNING: Imminent production line stoppage. Critical escalation — response required today.\n';
+  const sols = buildSolutions(c);
+  const solBlock = [
+    sols.altPart   ? `  Alt Part       : ${sols.altPart}` : '',
+    sols.altSup    ? `  Alt Supplier   : ${sols.altSup}` : '',
+    sols.split     ? `  Split Order    : ${sols.split}` : '',
+    sols.partial   ? `  Partial Build  : ${sols.partial}` : '',
+  ].filter(Boolean).join('\n');
+  document.getElementById('exp-output').textContent =
+`Dear ${c.supplier||'[Supplier]'} Team,
+
+I am writing to formally request expedited delivery for the following shortage:
+
+  Item Number      : ${item}
+  Description      : ${c.item_desc}
+  Component Type   : ${c.type}
+  Qty Per Assembly : ${c.qty_per}
+  Total Shortage   : ${Math.round(c.short)}
+  Lead Time        : ${Math.round(c.lt)} days
+
+  Top Product      : ${top}
+  Product Desc     : ${prod.top_desc.substring(0,80)}
+  Production Due   : ${fd(c.due_top)}
+  Product Status   : ${prod.status}
+
+  Current supply schedule:
+  ${c.due_supply ? `PO due ${fd(c.due_supply)} for ${Math.round(c.supply_qty)} units` : 'No confirmed supply'}
+  Root Cause       : ${c.rc}
+${urgLine}
+Options under consideration:
+${solBlock||'  Under review — please advise'}
+
+Please confirm:
+  1. Earliest possible delivery date
+  2. Current production / shipment status
+  3. Name and contact of responsible account manager
+${notes?'\nAdditional context:\n'+notes+'\n':''}
+Your prompt response is critical to our production schedule.
+
+Best regards,
+${name}`;
+}
+
+function copyExp(mode) {
+  const subj = document.getElementById('exp-subject').value;
+  const body = document.getElementById('exp-output').textContent;
+  const text = mode==='full' ? `Subject: ${subj}\n\n${body}` : body;
+  writeClip(text); toast('Copied to clipboard ✓');
+}
+
+// ════════════════════════════════════
+// EXECUTIVE SUMMARY
+// ════════════════════════════════════
+function buildSummary() {
+  if (!PRODUCTS.length) return;
+  const aud    = document.getElementById('sum-aud').value;
+  const author = document.getElementById('sum-author').value || 'Supply Chain PM';
+  const blocked = PRODUCTS.filter(p=>p.status==='FULLY BLOCKED');
+  const risk    = PRODUCTS.filter(p=>p.status==='AT RISK');
+  const ok      = PRODUCTS.filter(p=>p.status==='CLEAR');
+  const tot_a   = Math.round(PRODUCTS.reduce((s,p)=>s+p.active_qty,0));
+  const tot_s   = Math.round(PRODUCTS.reduce((s,p)=>s+p.sim_qty,0));
+  const rcC = {};
+  ALL_SHORTS.forEach(c=>{ rcC[c.rc]=(rcC[c.rc]||0)+1; });
+  const topRC = Object.entries(rcC).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k,v])=>`${k} (${v})`).join(', ')||'N/A';
+  const critSups = [...new Set(ALL_SHORTS.filter(c=>c.rc.includes('E2S')||c.rc.includes('No PO')).map(c=>c.supplier).filter(Boolean))].slice(0,4).join(', ')||'N/A';
+  const LINE = '─'.repeat(58);
+
+  let out = '';
+  if (aud==='mgmt') {
+    out = `MANUFACTURING READINESS REPORT — SENIOR MANAGEMENT
+Date         : ${TODAY_STR}
+Prepared by  : ${author}
+
+OVERALL STATUS
+${LINE}
+Active WO units   : ${tot_a}
+Simulation units  : ${tot_s} (planned demand)
+Total combined    : ${tot_a+tot_s}
+
+Products — Fully Blocked  : ${blocked.length}
+Products — At Risk        : ${risk.length}
+Products — Clear          : ${ok.length}
+
+Health Rating : ${blocked.length>3?'CRITICAL':blocked.length>0?'ELEVATED':'STABLE'}
+
+FULLY BLOCKED — IMMEDIATE ACTION REQUIRED
+${LINE}
+${blocked.map((p,i)=>`${i+1}. ${p.top} | ${p.top_desc.substring(0,55)} | ${Math.round(p.total_qty)} units | Due: ${p.due_str}`).join('\n')||'None'}
+
+TOP ROOT CAUSES
+${LINE}
+${topRC}
+
+CRITICAL SUPPLIERS
+${LINE}
+${critSups}
+
+RECOMMENDED ACTIONS
+${LINE}
+${blocked.length>0?`• Escalate ${blocked.length} fully blocked product(s) — assign emergency sourcing`:''}
+${risk.length>0?`• Expedite ${risk.length} at-risk product(s) via procurement`:''}
+• Demand confirmed delivery dates from: ${critSups}
+• Review all E2S components for alternate sourcing immediately
+
+Generated by CTB Shortage Dashboard`;
+  } else {
+    out = `MANUFACTURING READINESS BRIEFING — PRODUCTION & PLANNING
+Date         : ${TODAY_STR}
+Prepared by  : ${author}
+
+PRODUCT STATUS OVERVIEW
+${LINE}
+${PRODUCTS.slice(0,20).map(p=>`${p.top.padEnd(22)} | ${p.status.padEnd(16)} | ${String(Math.round(p.total_qty)).padStart(5)} units | Due: ${p.due_str} | ${p.n_short} shortage items`).join('\n')}${PRODUCTS.length>20?`\n...and ${PRODUCTS.length-20} more products`:''}
+
+FULLY BLOCKED — NO PRODUCTION POSSIBLE
+${LINE}
+${blocked.map(p=>{
+  const nd=p.short_comps.filter(c=>!c.order_id||c.order_id==='').slice(0,3).map(c=>c.item).join(', ');
+  return `${p.top} (${Math.round(p.total_qty)} units) — blocked by: ${nd||'multiple components'}`;
+}).join('\n')||'None'}
+
+ROOT CAUSE BREAKDOWN
+${LINE}
+${Object.entries(rcC).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`${k}: ${v} components`).join('\n')||'N/A'}
+
+TOP ITEMS TO EXPEDITE TODAY
+${LINE}
+${ALL_SHORTS.filter(c=>!c.is_sim).slice(0,10).map(c=>`${c.item} | ${c.item_desc.substring(0,40)} | ${c.supplier} | LT: ${Math.round(c.lt)}d | ${c.top} | ${c.rc}`).join('\n')||'None'}
+
+Generated by CTB Shortage Dashboard`;
+  }
+  document.getElementById('sum-output').textContent = out;
+}
+
+function copySummary() {
+  writeClip(document.getElementById('sum-output').textContent);
+  toast('Report copied ✓');
+}
+
+// ════════════════════════════════════
+// CSV EXPORT
+// ════════════════════════════════════
+function csvC(v) {
+  const s = String(v===null||v===undefined?'':v);
+  return s.includes(',')||s.includes('"')||s.includes('\n') ? '"'+s.replace(/"/g,'""')+'"' : s;
+}
+
+function exportCSV(type) {
+  let csv = '';
+  if (type==='readiness') {
+    csv = ['Rank','Status','Product','Description','Due Date','Active Qty','Sim Qty','Total Qty','Shortage Items','% At Risk','E2S','NOPO','Days to Due'].map(csvC).join(',')+'\r\n';
+    PRODUCTS.forEach(p => { csv += [p.rank,p.status,p.top,p.top_desc,p.due_str,Math.round(p.active_qty),Math.round(p.sim_qty),Math.round(p.total_qty),p.n_short,p.pct_short+'%',p.has_e2s?'YES':'no',p.has_nopo?'YES':'no',p.days_away<9999?p.days_away:'—'].map(csvC).join(',')+'\r\n'; });
+  } else if (type==='shortage') {
+    const prod = PRODUCTS.find(p=>p.top===document.getElementById('s-prod').value);
+    if (!prod) return;
+    csv = ['WO Type','Item','Description','Type','Short Qty','LIM','Remarks','Supplier','LT (d)','Supply Due','Days Late','Root Cause','Alt Part','Alt Supplier','Split Order','Reallocate','Partial Build'].map(csvC).join(',')+'\r\n';
+    prod.short_comps.forEach(c => {
+      const sols=buildSolutions(c); const rc=rootCause(c);
+      const late=c.due_supply&&c.due_top&&c.due_supply>c.due_top?Math.ceil((c.due_supply-c.due_top)/86400000):0;
+      csv += [c.is_sim?'SIM':'ACT',c.item,c.item_desc,c.type,c.short?Math.round(c.short):'',c.lim?Math.round(c.lim):'',c.remarks,c.supplier,c.lt?Math.round(c.lt):'',fd(c.due_supply),late?'+'+late+'d':'',rc,sols.altPart,sols.altSup,sols.split,sols.realloc,sols.partial].map(csvC).join(',')+'\r\n';
+    });
+  } else if (type==='warning') {
+    const horizonDays = parseInt(document.getElementById('wk-range').value)*7;
+    csv = ['WO Type','Item','Description','Product','Due Date','Days Away','Projected Gap','Risk','Supplier','Alt Supplier','Partial Build'].map(csvC).join(',')+'\r\n';
+    ALL_SHORTS.filter(c=>c.days_away>0&&c.days_away<=horizonDays).forEach(c => {
+      const sols=buildSolutions(c); const risk=c.days_away<=7?'HIGH':c.days_away<=14?'MED':'LOW';
+      csv += [c.is_sim?'SIM':'ACT',c.item,c.item_desc,c.top,fd(c.due_top),c.days_away,c.short?Math.round(c.short):'',risk,c.supplier,sols.altSup,sols.partial].map(csvC).join(',')+'\r\n';
+    });
+  } else if (type==='rootcause') {
+    csv = ['WO Type','Item','Description','Type','Product','Supplier','LT (d)','Due Date','Supply Due','Root Cause','Alt Part','Alt Supplier','Reallocate'].map(csvC).join(',')+'\r\n';
+    ALL_SHORTS.forEach(c => {
+      const sols=buildSolutions(c); const late=c.due_supply&&c.due_top&&c.due_supply>c.due_top;
+      csv += [c.is_sim?'SIM':'ACT',c.item,c.item_desc,c.type,c.top,c.supplier,c.lt?Math.round(c.lt):'',fd(c.due_top),fd(c.due_supply),c.rc,sols.altPart,sols.altSup,sols.realloc].map(csvC).join(',')+'\r\n';
+    });
+  } else if (type==='tiaduf') {
+    csv = ['WO Type','Item','Description','Type','Product','Due Date','Short Qty','TIADUF Note','Supplier','Reallocate','Alt Part','Partial Build'].map(csvC).join(',')+'\r\n';
+    ALL_SHORTS.filter(c=>c.tiaduf&&c.tiaduf.trim().length>2).forEach(c => {
+      const sols=buildSolutions(c);
+      csv += [c.is_sim?'SIM':'ACT',c.item,c.item_desc,c.type,c.top,fd(c.due_top),c.short?Math.round(c.short):'',c.tiaduf,c.supplier,sols.realloc,sols.altPart,sols.partial].map(csvC).join(',')+'\r\n';
+    });
+  }
+
+  const fname = `CTB_${type}_${TODAY_STR.replace(/\//g,'-')}.csv`;
+  try {
+    const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href=url; a.download=fname; document.body.appendChild(a); a.click();
+    document.body.removeChild(a); setTimeout(()=>URL.revokeObjectURL(url),1500);
+  } catch(e) {
+    // iPad fallback — copy to clipboard
+    writeClip(csv); toast('Download blocked — CSV copied to clipboard instead');
+  }
+}
+
+// ════════════════════════════════════
+// UTILITIES
+// ════════════════════════════════════
+function writeClip(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).catch(()=>fallbackCopy(text));
+  } else { fallbackCopy(text); }
+}
+function fallbackCopy(text) {
+  const ta=document.createElement('textarea'); ta.value=text;
+  ta.style.cssText='position:fixed;opacity:0;top:0;left:0';
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try { document.execCommand('copy'); } catch(e){}
+  document.body.removeChild(ta);
+}
+function toast(msg) {
+  const el=document.getElementById('toast'); el.textContent=msg; el.classList.add('show');
+  setTimeout(()=>el.classList.remove('show'), 2500);
+}
+function showLoading(msg) {
+  document.getElementById('loading-msg').textContent = msg||'Processing…';
+  document.getElementById('loading').classList.add('show');
+}
+function hideLoading() { document.getElementById('loading').classList.remove('show'); }
+function resetApp() {
+  DATA=[]; PRODUCTS=[]; ALL_SHORTS=[]; ITEM_TO_TOPS={};
+  document.getElementById('upload-screen').style.display='';
+  document.getElementById('main').style.display='none';
+  document.getElementById('topbar-health').style.display='none';
+  document.getElementById('btn-reset').style.display='none';
+  document.getElementById('topbar-date').textContent='';
+  document.getElementById('file-input').value='';
+}
+</script>
+</body>
+</html>
