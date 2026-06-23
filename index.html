@@ -710,7 +710,7 @@ function parseAndRender(rows, filename) {
       supplier:   String(r[C.SUPPLIER] || '').trim(),
       lt:         flt(r[C.LT]),
       planner:    String(r[C.PLANNER] || '').trim(),
-      is_sim:     wo_status.includes('_Sim') || wo_status.includes('Sim'),
+      is_sim:     /^ECI999/i.test(String(r[C.WO_ID] || '').trim()) || wo_status.includes('_Sim'),
     });
   }
 
@@ -837,16 +837,20 @@ function buildProducts() {
   PRODUCTS = Object.entries(byTop).map(([top, grp]) => {
     const all = [...grp.active, ...grp.sim];
     const td = all[0];
-    // CORRECT QTY: use col3 (Id = WO instance ID like "ECI006701:1") on
-    // level-0 rows only (where Part col5 == TOP col0). Each unique Id is one
-    // production WO. Col21 (order_id) contains component supply PO IDs —
-    // hundreds per product — and must NOT be used for qty calculation.
+    // CORRECT QTY: col3 (Id) contains production WO IDs like "ECI006701:1".
+    // The same Id repeats for every component in that WO — deduplicate.
+    // ECI naming convention: ECI999xxx = Simulation WO, ECI006xxx = Active WO.
+    // Exclude supply PO IDs (2400L..., 2400O..., Planned, etc.)
+    const isProductionWO = id => /^ECI\d/i.test(id);
+    const isSimWO        = id => /^ECI999/i.test(id);
     const seenA = {}, seenS = {};
-    grp.active.filter(c => c.is_top_level).forEach(c => {
-      if (c.wo_id && !(c.wo_id in seenA)) seenA[c.wo_id] = c.qty_top;
-    });
-    grp.sim.filter(c => c.is_top_level).forEach(c => {
-      if (c.wo_id && !(c.wo_id in seenS)) seenS[c.wo_id] = c.qty_top;
+    [...grp.active, ...grp.sim].forEach(c => {
+      if (!isProductionWO(c.wo_id)) return;
+      if (isSimWO(c.wo_id)) {
+        if (!(c.wo_id in seenS)) seenS[c.wo_id] = c.qty_top;
+      } else {
+        if (!(c.wo_id in seenA)) seenA[c.wo_id] = c.qty_top;
+      }
     });
     const active_qty = Object.values(seenA).reduce((s,v)=>s+v,0);
     const sim_qty    = Object.values(seenS).reduce((s,v)=>s+v,0);
