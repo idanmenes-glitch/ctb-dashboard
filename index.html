@@ -640,8 +640,10 @@ function detectCols(headerRow) {
   const TOP       = find('TOP','TOP PART') >= 0 ? find('TOP','TOP PART') : 0;
   const TOP_DESC  = TOP + 1;
   const TOP_DUE   = find('PLAN DATE','DUE DATE','PLANNED DUE') >= 0 ? find('PLAN DATE','DUE DATE','PLANNED DUE') : 2;
+  const WO_ID     = find('ID','WO ID','ORDER NO') >= 0 ? find('ID','WO ID','ORDER NO') : 3;  // col3 = "Id" (ECI006701:1)
   const TOP_QTY   = find('QTY','QUANTITY','QTY TOP') >= 0 ? find('QTY','QUANTITY','QTY TOP') : 4;
-  const ITEM      = find('ITEM','PART NUMBER','COMPONENT') >= 0 ? find('ITEM','PART NUMBER','COMPONENT') : 6;
+  const PART      = find('PART','PART NUMBER') >= 0 ? find('PART','PART NUMBER') : 5;  // col5 = Part (same as TOP for level-0)
+  const ITEM      = find('ITEM','COMPONENT') >= 0 ? find('ITEM','COMPONENT') : 6;
   const ITEM_DESC = ITEM + 1;
   const TYPE      = find('TYPE','COMP TYPE') >= 0 ? find('TYPE','COMP TYPE') : 8;
   // Ribbon-specific: Av Stck at 9, remarks at 11, TIADUF at 12, ONO at 14
@@ -658,7 +660,7 @@ function detectCols(headerRow) {
   const SUPPLIER  = find('SUPPLIER','VENDOR') >= 0 ? find('SUPPLIER','VENDOR') : 25;
   const LT        = find('LEAD TIME','LT','L/T') >= 0 ? find('LEAD TIME','LT','L/T') : 26;
   const PLANNER   = 27;
-  return { TOP, TOP_DESC, TOP_DUE, TOP_QTY, ITEM, ITEM_DESC, TYPE, AV_STCK,
+  return { TOP, TOP_DESC, TOP_DUE, TOP_QTY, WO_ID, PART, ITEM, ITEM_DESC, TYPE, AV_STCK,
            REMARKS, TIADUF, LEVEL, QPA, NEED, SHORT, LIM, ORDER_ID, WO_STATUS,
            SUP_QTY, SUP_DUE, SUPPLIER, LT, PLANNER };
 }
@@ -688,6 +690,8 @@ function parseAndRender(rows, filename) {
       top_desc:   String(r[C.TOP_DESC] || '').trim(),
       due_top:    parseDate(r[C.TOP_DUE]),
       qty_top:    flt(r[C.TOP_QTY]),
+      wo_id:      String(r[C.WO_ID] || '').trim(),   // e.g. "ECI006701:1" — unique per production WO
+      is_top_level: String(r[C.PART] || '').trim() === String(r[C.TOP] || '').trim(), // true when Part==TOP (level 0)
       item:       String(r[C.ITEM] || '').trim(),
       item_desc:  String(r[C.ITEM_DESC] || '').trim(),
       type:       String(r[C.TYPE] || '').trim(),
@@ -833,12 +837,17 @@ function buildProducts() {
   PRODUCTS = Object.entries(byTop).map(([top, grp]) => {
     const all = [...grp.active, ...grp.sim];
     const td = all[0];
-    // FIX: deduplicate by WO ID — same ID across multiple component rows
-    // means one WO with one qty, not multiple. Use the qty from the first
-    // occurrence of each unique order_id.
+    // CORRECT QTY: use col3 (Id = WO instance ID like "ECI006701:1") on
+    // level-0 rows only (where Part col5 == TOP col0). Each unique Id is one
+    // production WO. Col21 (order_id) contains component supply PO IDs —
+    // hundreds per product — and must NOT be used for qty calculation.
     const seenA = {}, seenS = {};
-    grp.active.forEach(c => { if (!(c.order_id in seenA)) seenA[c.order_id] = c.qty_top; });
-    grp.sim.forEach(c =>    { if (!(c.order_id in seenS)) seenS[c.order_id] = c.qty_top; });
+    grp.active.filter(c => c.is_top_level).forEach(c => {
+      if (c.wo_id && !(c.wo_id in seenA)) seenA[c.wo_id] = c.qty_top;
+    });
+    grp.sim.filter(c => c.is_top_level).forEach(c => {
+      if (c.wo_id && !(c.wo_id in seenS)) seenS[c.wo_id] = c.qty_top;
+    });
     const active_qty = Object.values(seenA).reduce((s,v)=>s+v,0);
     const sim_qty    = Object.values(seenS).reduce((s,v)=>s+v,0);
     const shortComps = all.filter(isShort);
