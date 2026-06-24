@@ -2,1461 +2,947 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>CTB Shortage Dashboard</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Manufacturing Readiness — AFM Platform</title>
 <style>
-/* ── Reset & base ── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 14px; -webkit-text-size-adjust: 100%; }
-body { font-family: -apple-system, 'Segoe UI', Arial, sans-serif; background: #0f1923; color: #e8edf2; min-height: 100vh; }
-
-/* ── Design tokens ── */
-:root {
-  --navy:    #0f1923;
-  --panel:   #162030;
-  --card:    #1e2d3d;
-  --border:  #2a3f55;
-  --accent:  #2196f3;
-  --accent2: #00bcd4;
-  --red:     #ef5350;
-  --red-bg:  rgba(239,83,80,.13);
-  --orange:  #ff9800;
-  --ora-bg:  rgba(255,152,0,.13);
-  --yellow-bg: rgba(255,235,59,.10);
-  --green:   #66bb6a;
-  --grn-bg:  rgba(102,187,106,.13);
-  --sim:     #ce93d8;
-  --sim-bg:  rgba(206,147,216,.10);
-  --sol:     #80cbc4;
-  --sol-bg:  rgba(128,203,196,.12);
-  --sol2:    #ffb74d;
-  --sol2-bg: rgba(255,183,77,.12);
-  --sol3:    #64b5f6;
-  --sol3-bg: rgba(100,181,246,.12);
-  --text:    #e8edf2;
-  --muted:   #7a99b8;
-  --radius:  8px;
-  --shadow:  0 2px 12px rgba(0,0,0,.35);
+*{box-sizing:border-box;margin:0;padding:0}
+html{font-size:13px;-webkit-text-size-adjust:100%}
+body{font-family:-apple-system,'Segoe UI',Arial,sans-serif;background:#0d1b2a;color:#cdd9e5;min-height:100vh}
+:root{
+  --bg:#0d1b2a;--panel:#112233;--card:#162840;--border:#1e3a52;
+  --accent:#00b4d8;--accent2:#90e0ef;--green:#52b788;--grn-bg:rgba(82,183,136,.12);
+  --red:#e63946;--red-bg:rgba(230,57,70,.12);--orange:#f4a261;--ora-bg:rgba(244,162,97,.12);
+  --yellow:#ffd166;--yel-bg:rgba(255,209,102,.10);
+  --sim:#c77dff;--sim-bg:rgba(199,125,255,.10);
+  --muted:#5a7a94;--text:#cdd9e5;--radius:7px;
+  --sol:#48cae4;--sol2:#f4a261;--sol3:#74c69d;
 }
-
-/* ── Typography ── */
-h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -.01em; }
-h2 { font-size: .95rem; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--muted); }
-
-/* ── Layout ── */
-#topbar {
-  background: var(--panel);
-  border-bottom: 1px solid var(--border);
-  padding: 12px 20px;
-  display: flex; align-items: center; gap: 14px;
-  position: sticky; top: 0; z-index: 200;
-  box-shadow: 0 1px 8px rgba(0,0,0,.4);
-}
-#topbar-title { flex: 1; }
-#topbar-title h1 { color: var(--accent); font-size: 1.1rem; }
-#topbar-date { font-size: .75rem; color: var(--muted); }
-#topbar-health { font-size: .8rem; font-weight: 700; padding: 4px 10px; border-radius: 20px; }
-.health-critical { background: var(--red-bg); color: var(--red); }
-.health-elevated  { background: var(--ora-bg); color: var(--orange); }
-.health-stable    { background: var(--grn-bg); color: var(--green); }
-
-/* ── Upload screen ── */
-#upload-screen {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  min-height: calc(100vh - 57px); padding: 40px 20px; text-align: center;
-}
-#drop-zone {
-  border: 2px dashed var(--border); border-radius: 16px;
-  padding: 60px 40px; max-width: 480px; width: 100%; cursor: pointer;
-  transition: border-color .2s, background .2s; margin-bottom: 24px;
-}
-#drop-zone.drag-over { border-color: var(--accent); background: rgba(33,150,243,.06); }
-#drop-zone .icon { font-size: 3rem; margin-bottom: 16px; display: block; }
-#drop-zone h2 { font-size: 1.1rem; color: var(--text); text-transform: none; margin-bottom: 8px; }
-#drop-zone p { color: var(--muted); font-size: .88rem; margin-bottom: 20px; }
-#file-input { display: none; }
-.upload-btn {
-  background: var(--accent); color: #fff; border: none; border-radius: 8px;
-  padding: 12px 28px; font-size: .95rem; font-weight: 600; cursor: pointer;
-  display: inline-block; transition: background .2s;
-}
-.upload-btn:hover { background: #1976d2; }
-.supported-note { font-size: .78rem; color: var(--muted); margin-top: 10px; }
-
-/* ── Nav tabs ── */
-#nav {
-  background: var(--panel); border-bottom: 1px solid var(--border);
-  display: flex; overflow-x: auto; -webkit-overflow-scrolling: touch;
-  position: sticky; top: 57px; z-index: 190;
-  scrollbar-width: none;
-}
-#nav::-webkit-scrollbar { display: none; }
-.tab-btn {
-  flex-shrink: 0; border: none; background: transparent; color: var(--muted);
-  padding: 13px 18px; font-size: .85rem; font-weight: 500; cursor: pointer;
-  border-bottom: 3px solid transparent; white-space: nowrap;
-  transition: color .15s, border-color .15s;
-}
-.tab-btn:hover { color: var(--text); }
-.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 700; }
-
-/* ── Main content ── */
-#main { display: none; }
-.tab-panel { display: none; padding: 20px; }
-.tab-panel.active { display: block; }
-
-/* ── KPI strip ── */
-.kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-bottom: 20px; }
-.kpi-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 12px; text-align: center; }
-.kpi-label { font-size: .72rem; color: var(--muted); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .04em; }
-.kpi-val { font-size: 1.6rem; font-weight: 700; }
-.kpi-sub { font-size: .7rem; color: var(--muted); margin-top: 2px; }
-
-/* ── Toolbar ── */
-.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
-.toolbar input[type=text], .toolbar select {
-  background: var(--card); border: 1px solid var(--border); color: var(--text);
-  border-radius: 6px; padding: 7px 12px; font-size: .83rem; outline: none;
-  -webkit-appearance: none;
-}
-.toolbar input[type=text]:focus, .toolbar select:focus { border-color: var(--accent); }
-.toolbar input[type=text] { width: 200px; }
-.btn {
-  background: var(--card); border: 1px solid var(--border); color: var(--text);
-  border-radius: 6px; padding: 7px 14px; font-size: .83rem; cursor: pointer;
-  white-space: nowrap; transition: background .15s;
-}
-.btn:hover { background: var(--border); }
-.btn-accent { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-.btn-accent:hover { background: #1976d2; }
-.ml-auto { margin-left: auto; }
-
-/* ── Table ── */
-.tbl-wrap { overflow-x: auto; overflow-y: auto; max-height: calc(100vh - 220px); -webkit-overflow-scrolling: touch; border-radius: var(--radius); border: 1px solid var(--border); }
-table { border-collapse: collapse; width: 100%; font-size: .8rem; }
-thead th {
-  background: var(--panel); color: var(--muted); padding: 7px 10px 0 10px;
-  text-align: left; white-space: nowrap; border-bottom: 1px solid var(--border);
-  cursor: pointer; user-select: none; font-weight: 600; font-size: .75rem;
-  text-transform: uppercase; letter-spacing: .04em;
-  position: sticky; top: 0; z-index: 10;
-}
-thead th.sol-hdr { background: #0d2818; color: var(--sol); }
-thead th:hover { color: var(--text); }
-/* Filter row sits just below header, also sticky */
-thead tr.filter-row th {
-  background: var(--navy); padding: 4px 6px 5px 6px;
-  top: 29px; /* height of header row */
-  cursor: default;
-}
-thead tr.filter-row th input,
-thead tr.filter-row th select {
-  width: 100%; background: var(--card); border: 1px solid var(--border);
-  color: var(--text); border-radius: 4px; padding: 3px 6px;
-  font-size: .72rem; outline: none; font-family: inherit;
-  -webkit-appearance: none; min-width: 0;
-}
-thead tr.filter-row th input:focus,
-thead tr.filter-row th select:focus { border-color: var(--accent); }
-/* Two-row sticky offset for tbody */
-table.has-filters thead th:first-child { top: 0; }
-
-tbody tr { border-bottom: 1px solid rgba(42,63,85,.5); transition: background .1s; }
-tbody tr:hover td { background: rgba(33,150,243,.05) !important; }
-tbody td { padding: 8px 10px; vertical-align: top; }
-.cell-wrap { max-width: 280px; }
-.trunc { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
-
-/* ── Badges ── */
-.badge { display: inline-block; font-size: .7rem; font-weight: 700; padding: 2px 8px; border-radius: 12px; white-space: nowrap; }
-.b-blocked  { background: var(--red-bg);  color: var(--red); }
-.b-risk     { background: var(--ora-bg);  color: var(--orange); }
-.b-clear    { background: var(--grn-bg);  color: var(--green); }
-.b-sim      { background: var(--sim-bg);  color: var(--sim); }
-.b-act      { background: var(--grn-bg);  color: var(--green); }
-.b-info     { background: var(--sol3-bg); color: var(--sol3); }
-.b-warn     { background: var(--ora-bg);  color: var(--orange); }
-.b-e2s      { background: var(--red-bg);  color: var(--red); font-size: .65rem; }
-
-/* ── Row color helpers ── */
-.r-critical td { background: rgba(239,83,80,.05); }
-.r-sim td      { background: rgba(206,147,216,.05); }
-.r-alt td      { background: rgba(0,0,0,0); }
-
-/* ── Solution cells ── */
-.sol-cell { font-size: .75rem; color: var(--sol); line-height: 1.45; min-width: 200px; }
-.sol2-cell { color: var(--sol2); }
-.sol3-cell { color: var(--sol3); }
-.sol-empty { color: var(--border); font-style: italic; }
-
-/* ── Progress bar ── */
-.prog { background: var(--border); border-radius: 4px; height: 6px; width: 60px; overflow: hidden; display: inline-block; vertical-align: middle; }
-.prog-fill { height: 100%; border-radius: 4px; }
-
-/* ── Detail accordion ── */
-.prod-row { cursor: pointer; }
-.prod-row:hover td { background: rgba(33,150,243,.08) !important; }
-.detail-row { display: none; }
-.detail-row.open { display: table-row; }
-.detail-inner { padding: 14px 16px; background: rgba(15,25,35,.6); border-top: 2px solid var(--accent); }
-
-/* ── Expedite panel ── */
-.exp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-@media (max-width: 700px) { .exp-grid { grid-template-columns: 1fr; } }
-.form-group { margin-bottom: 12px; }
-.form-group label { display: block; font-size: .78rem; color: var(--muted); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .04em; }
-.form-group input, .form-group select, .form-group textarea {
-  width: 100%; background: var(--card); border: 1px solid var(--border);
-  color: var(--text); border-radius: 6px; padding: 8px 12px; font-size: .85rem;
-  font-family: inherit; outline: none; -webkit-appearance: none;
-}
-.form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--accent); }
-.form-group textarea { resize: vertical; min-height: 80px; }
-#exp-output {
-  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
-  padding: 14px; font-family: 'Courier New', monospace; font-size: .78rem;
-  white-space: pre-wrap; line-height: 1.6; color: var(--text); min-height: 360px;
-}
-#exp-subject-box { margin-bottom: 10px; }
-
-/* ── Summary output ── */
-#sum-output {
-  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
-  padding: 16px; font-family: 'Courier New', monospace; font-size: .78rem;
-  white-space: pre-wrap; line-height: 1.65; color: var(--text); min-height: 400px;
-}
-
-/* ── Info banner ── */
-.info-banner {
-  background: var(--sim-bg); border: 1px solid rgba(206,147,216,.25);
-  border-radius: 8px; padding: 10px 14px; font-size: .8rem; color: var(--sim);
-  margin-bottom: 14px;
-}
-.warn-banner {
-  background: var(--ora-bg); border: 1px solid rgba(255,152,0,.2);
-  border-radius: 8px; padding: 10px 14px; font-size: .8rem; color: var(--orange);
-  margin-bottom: 14px;
-}
-
-/* ── Legend box ── */
-.legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
-.leg-item { display: flex; align-items: center; gap: 6px; font-size: .75rem; color: var(--muted); }
-.leg-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-
-/* ── Horizon slider ── */
-.slider-row { display: flex; align-items: center; gap: 10px; }
-input[type=range] { -webkit-appearance: none; background: var(--border); height: 4px; border-radius: 2px; outline: none; width: 140px; }
-input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); cursor: pointer; }
-
-/* ── Toast ── */
-#toast {
-  position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
-  background: var(--green); color: #fff; padding: 10px 24px; border-radius: 24px;
-  font-size: .85rem; font-weight: 600; z-index: 9999; opacity: 0;
-  transition: opacity .3s; pointer-events: none; white-space: nowrap;
-}
-#toast.show { opacity: 1; }
-
-/* ── Loading overlay ── */
-#loading {
-  display: none; position: fixed; inset: 0; background: rgba(15,25,35,.85);
-  z-index: 9999; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
-}
-#loading.show { display: flex; }
-.spinner { width: 42px; height: 42px; border: 4px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-#loading-msg { font-size: .9rem; color: var(--muted); }
-
-/* ── Responsive ── */
-@media (max-width: 600px) {
-  .tab-btn { padding: 11px 12px; font-size: .78rem; }
-  .kpi-val { font-size: 1.3rem; }
-  .exp-grid { grid-template-columns: 1fr; }
-  .toolbar input[type=text] { width: 140px; }
-}
+button{cursor:pointer;font-family:inherit;font-size:12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--card);color:var(--text);padding:5px 12px;transition:all .15s}
+button:hover{background:var(--border);border-color:var(--accent)}
+button.active{background:var(--accent);color:#0d1b2a;border-color:var(--accent);font-weight:700}
+input,select,textarea{font-family:inherit;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);padding:5px 9px;outline:none;background:var(--card);color:var(--text);-webkit-appearance:none}
+input:focus,select:focus{border-color:var(--accent)}
+select option{background:var(--panel)}
+.badge{display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;white-space:nowrap}
+.b-blocked{background:var(--red-bg);color:var(--red)}
+.b-partial{background:var(--ora-bg);color:var(--orange)}
+.b-full{background:var(--grn-bg);color:var(--green)}
+.b-planned{background:var(--sim-bg);color:var(--sim)}
+.b-ok{background:var(--grn-bg);color:var(--green)}
+.b-short{background:var(--red-bg);color:var(--red)}
+.b-info{background:rgba(0,180,216,.12);color:var(--accent)}
+/* Topbar */
+#topbar{background:var(--panel);border-bottom:1px solid var(--border);padding:10px 18px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:200;box-shadow:0 1px 8px rgba(0,0,0,.5)}
+#topbar h1{font-size:1.05rem;font-weight:700;color:var(--accent);flex:1;letter-spacing:.02em}
+#topbar-meta{font-size:.75rem;color:var(--muted)}
+/* Upload screen */
+#upload-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:calc(100vh - 50px);padding:32px 20px;text-align:center;gap:20px}
+#upload-screen h2{font-size:1.2rem;color:var(--text);margin-bottom:4px}
+#upload-screen p{font-size:.85rem;color:var(--muted);max-width:440px}
+.upload-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;max-width:860px;width:100%;margin-top:8px}
+.upload-card{background:var(--card);border:2px dashed var(--border);border-radius:10px;padding:20px 16px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;position:relative}
+.upload-card:hover{border-color:var(--accent);background:rgba(0,180,216,.05)}
+.upload-card.loaded{border-color:var(--green);border-style:solid}
+.upload-card .uc-icon{font-size:1.8rem;margin-bottom:8px}
+.upload-card .uc-title{font-size:.88rem;font-weight:600;color:var(--text);margin-bottom:4px}
+.upload-card .uc-desc{font-size:.74rem;color:var(--muted)}
+.upload-card .uc-status{font-size:.74rem;margin-top:6px;font-weight:600}
+.upload-card.loaded .uc-status{color:var(--green)}
+.upload-card input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+#run-btn{background:var(--accent);color:#0d1b2a;border:none;border-radius:var(--radius);padding:12px 32px;font-size:.95rem;font-weight:700;cursor:pointer;margin-top:8px;transition:background .2s}
+#run-btn:hover{background:var(--accent2)}
+#run-btn:disabled{background:var(--muted);cursor:not-allowed}
+/* Nav */
+#nav{background:var(--panel);border-bottom:1px solid var(--border);display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch;position:sticky;top:50px;z-index:190;scrollbar-width:none}
+#nav::-webkit-scrollbar{display:none}
+.tab-btn{flex-shrink:0;border:none;background:transparent;color:var(--muted);padding:11px 16px;font-size:.82rem;font-weight:500;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;transition:color .15s,border-color .15s}
+.tab-btn:hover{color:var(--text)}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}
+/* Main */
+#main{display:none}
+.tab-panel{display:none;padding:18px}
+.tab-panel.active{display:block}
+/* KPI strip */
+.kpi-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:9px;margin-bottom:18px}
+.kpi{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:12px 10px;text-align:center}
+.kpi-l{font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.kpi-v{font-size:1.5rem;font-weight:700}
+/* Priority panel */
+#priority-panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:16px}
+#priority-panel h3{font-size:.8rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px}
+#priority-list{display:flex;flex-direction:column;gap:4px;max-height:260px;overflow-y:auto}
+.pri-item{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--panel);border:1px solid var(--border);border-radius:5px;cursor:grab;transition:background .1s;user-select:none}
+.pri-item:active{cursor:grabbing}
+.pri-item.dragging{opacity:.5;background:var(--border)}
+.pri-item.drag-over{border-color:var(--accent);background:rgba(0,180,216,.08)}
+.pri-rank{font-size:.72rem;color:var(--muted);width:18px;flex-shrink:0}
+.pri-prod{font-size:.8rem;font-weight:600;color:var(--accent2);flex:1}
+.pri-desc{font-size:.72rem;color:var(--muted);flex:2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pri-flag{display:flex;gap:4px}
+.pri-flag button{padding:2px 7px;font-size:.68rem;border-radius:10px}
+.pri-flag .f-crit.active{background:var(--red-bg);color:var(--red);border-color:var(--red)}
+.pri-flag .f-norm.active{background:rgba(0,180,216,.12);color:var(--accent);border-color:var(--accent)}
+.pri-flag .f-low.active{background:var(--yel-bg);color:var(--yellow);border-color:var(--yellow)}
+/* Toolbar */
+.toolbar{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.toolbar input[type=text]{width:190px}
+.ml-auto{margin-left:auto}
+/* Table */
+.tbl-wrap{overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 260px);border-radius:var(--radius);border:1px solid var(--border);-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;font-size:.78rem}
+thead th{background:var(--panel);color:var(--muted);padding:7px 9px;text-align:left;white-space:nowrap;border-bottom:1px solid var(--border);cursor:pointer;user-select:none;font-weight:600;font-size:.71rem;text-transform:uppercase;letter-spacing:.03em;position:sticky;top:0;z-index:10}
+thead th:hover{color:var(--text)}
+thead tr.frow th{background:var(--bg);top:27px;cursor:default;padding:3px 5px}
+thead tr.frow th input{width:100%;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 5px;font-size:.7rem;outline:none}
+thead tr.frow th input:focus{border-color:var(--accent)}
+tbody tr{border-bottom:1px solid rgba(30,58,82,.4);transition:background .1s}
+tbody tr:hover td{background:rgba(0,180,216,.04)!important}
+tbody td{padding:6px 9px;vertical-align:top}
+.trunc{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+/* Progress */
+.prog{background:var(--border);border-radius:3px;height:5px;width:52px;overflow:hidden;display:inline-block;vertical-align:middle}
+.prog-f{height:100%;border-radius:3px;transition:width .4s}
+/* Expedite / Summary */
+.exp-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:680px){.exp-grid{grid-template-columns:1fr}}
+.form-group{margin-bottom:10px}
+.form-group label{display:block;font-size:.72rem;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em}
+.form-group input,.form-group select,.form-group textarea{width:100%}
+.form-group textarea{resize:vertical;min-height:70px}
+#exp-out,#sum-out{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-family:'Courier New',monospace;font-size:.75rem;white-space:pre-wrap;line-height:1.6;min-height:340px;color:var(--text)}
+/* Loading */
+#loading{display:none;position:fixed;inset:0;background:rgba(13,27,42,.88);z-index:9999;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+#loading.show{display:flex}
+.spin{width:40px;height:40px;border:4px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#load-msg{font-size:.85rem;color:var(--muted)}
+/* Toast */
+#toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:var(--green);color:#0d1b2a;padding:9px 22px;border-radius:20px;font-size:.82rem;font-weight:700;z-index:9999;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
+#toast.show{opacity:1}
+/* Shared component highlight */
+.shared-warn{color:var(--orange);font-size:.7rem}
 </style>
 </head>
 <body>
-
-<div id="loading"><div class="spinner"></div><div id="loading-msg">Reading file…</div></div>
+<div id="loading"><div class="spin"></div><div id="load-msg">Loading…</div></div>
 <div id="toast"></div>
 
-<!-- TOP BAR -->
 <div id="topbar">
-  <div id="topbar-title">
-    <h1>CTB Shortage Dashboard</h1>
-    <div id="topbar-date" class="topbar-date"></div>
-  </div>
-  <div id="topbar-health" style="display:none;"></div>
-  <button class="btn" onclick="resetApp()" style="display:none;" id="btn-reset">↩ New File</button>
+  <h1>📦 Manufacturing Readiness</h1>
+  <div id="topbar-meta"></div>
+  <button style="display:none" id="btn-reset" onclick="resetApp()">↩ New files</button>
 </div>
 
-<!-- UPLOAD SCREEN -->
+<!-- ══ UPLOAD SCREEN ══ -->
 <div id="upload-screen">
-  <div id="drop-zone" onclick="document.getElementById('file-input').click()">
-    <span class="icon">📊</span>
-    <h2>Upload your CTB file</h2>
-    <p>Tap to select your CTB Excel file from Files or Teams.<br>Works entirely in your browser — nothing is uploaded anywhere.</p>
-    <label class="upload-btn">Choose File</label>
-    <div class="supported-note">Supports .xlsx · .xlsm · .xls</div>
+  <div>
+    <h2>Upload your 4 source files</h2>
+    <p>All processing runs in your browser. Nothing is sent anywhere.</p>
   </div>
-  <input type="file" id="file-input" accept=".xlsx,.xlsm,.xls">
+  <div class="upload-grid">
+    <div class="upload-card" id="uc-bom">
+      <input type="file" accept=".xlsx,.xlsm,.xls" onchange="fileLoaded('bom',this)">
+      <div class="uc-icon">🔩</div>
+      <div class="uc-title">Indented BOM</div>
+      <div class="uc-desc">Full bill of materials with QPA per component</div>
+      <div class="uc-status" id="uc-bom-status">Not loaded</div>
+    </div>
+    <div class="upload-card" id="uc-order">
+      <input type="file" accept=".xlsx,.xlsm,.xls" onchange="fileLoaded('order',this)">
+      <div class="uc-icon">📋</div>
+      <div class="uc-title">Item Order Plan</div>
+      <div class="uc-desc">Production orders and planned production demand</div>
+      <div class="uc-status" id="uc-order-status">Not loaded</div>
+    </div>
+    <div class="upload-card" id="uc-inv">
+      <input type="file" accept=".xlsx,.xlsm,.xls" onchange="fileLoaded('inv',this)">
+      <div class="uc-icon">🏭</div>
+      <div class="uc-title">All Inventory</div>
+      <div class="uc-desc">Current on-hand stock per component</div>
+      <div class="uc-status" id="uc-inv-status">Not loaded</div>
+    </div>
+    <div class="upload-card" id="uc-po">
+      <input type="file" accept=".xlsx,.xlsm,.xls" onchange="fileLoaded('po',this)">
+      <div class="uc-icon">🚚</div>
+      <div class="uc-title">Open PO</div>
+      <div class="uc-desc">Open purchase orders with quantities and ETAs</div>
+      <div class="uc-status" id="uc-po-status">Not loaded</div>
+    </div>
+  </div>
+  <button id="run-btn" onclick="runAnalysis()" disabled>Run Analysis →</button>
 </div>
 
-<!-- MAIN APP -->
+<!-- ══ MAIN APP ══ -->
 <div id="main">
   <div id="nav">
-    <button class="tab-btn active" onclick="showTab('readiness',this)">📋 Readiness</button>
+    <button class="tab-btn active" onclick="showTab('plan',this)">📋 Build Plan</button>
     <button class="tab-btn" onclick="showTab('shortage',this)">📉 Shortages</button>
-    <button class="tab-btn" onclick="showTab('warning',this)">⚠️ Early Warning</button>
-    <button class="tab-btn" onclick="showTab('rootcause',this)">🏷 Root Cause</button>
-    <button class="tab-btn" onclick="showTab('tiaduf',this)">🔀 TIADUF</button>
-    <button class="tab-btn" onclick="showTab('expedite',this)">✉️ Expedite</button>
+    <button class="tab-btn" onclick="showTab('shared',this)">🔀 Shared Components</button>
+    <button class="tab-btn" onclick="showTab('po',this)">🚚 Open POs</button>
     <button class="tab-btn" onclick="showTab('summary',this)">📄 Summary</button>
-    <button class="tab-btn" onclick="showTab('rawdata',this)">📂 Raw Data</button>
-    <button class="tab-btn" onclick="showTab('bom',this)">🔩 BOM</button>
   </div>
 
-  <!-- ── READINESS ── -->
-  <div id="tab-readiness" class="tab-panel active">
+  <!-- BUILD PLAN -->
+  <div id="tab-plan" class="tab-panel active">
     <div class="kpi-strip" id="kpi-strip"></div>
-    <div class="info-banner" id="sim-banner" style="display:none;"></div>
-    <div class="toolbar">
-      <input type="text" id="r-search" placeholder="Search product…" oninput="renderReadiness()">
-      <select id="r-status" onchange="renderReadiness()">
-        <option value="all">All statuses</option>
-        <option value="FULLY BLOCKED">Fully Blocked</option>
-        <option value="AT RISK">At Risk</option>
-        <option value="CLEAR">Clear</option>
-      </select>
-      <button class="btn ml-auto" onclick="exportCSV('readiness')">⬇ Export</button>
-    </div>
-    <div class="tbl-wrap">
-      <table id="tbl-readiness"><thead><tr>
-        <th onclick="rsort('rank')" style="width:36px">#</th>
-        <th onclick="rsort('top')" style="width:130px">Product</th>
-        <th onclick="rsort('top_desc')" style="width:220px">Description</th>
-        <th onclick="rsort('due_str')" style="width:90px">Due</th>
-        <th onclick="rsort('active_qty')" style="width:70px">Active Qty</th>
-        <th onclick="rsort('sim_qty')" style="width:65px">Sim Qty</th>
-        <th onclick="rsort('total_qty')" style="width:65px">Total</th>
-        <th onclick="rsort('n_short')" style="width:65px">Shortage Items</th>
-        <th onclick="rsort('pct_short')" style="width:60px">% Risk</th>
-        <th style="width:60px">E2S</th>
-        <th style="width:60px">NOPO</th>
-        <th onclick="rsort('days_away')" style="width:70px">Days</th>
-        <th onclick="rsort('status')" style="width:130px">Status</th>
-        <th style="width:160px">Notes</th>
-      </tr></thead>
-      <tbody id="r-body"></tbody></table>
+    <div style="display:grid;grid-template-columns:320px 1fr;gap:14px;align-items:start">
+      <div id="priority-panel">
+        <h3>⬆ Priority order <span style="font-weight:400;color:var(--muted);font-size:.68rem">(drag to reorder)</span></h3>
+        <div id="priority-list"></div>
+        <button onclick="recalculate()" style="margin-top:10px;width:100%;background:var(--accent);color:#0d1b2a;border-color:var(--accent);font-weight:700">↻ Recalculate</button>
+      </div>
+      <div>
+        <div class="toolbar">
+          <input type="text" id="plan-search" placeholder="Search product…" oninput="renderPlan()">
+          <select id="plan-filter" onchange="renderPlan()">
+            <option value="all">All statuses</option>
+            <option value="BLOCKED">Blocked</option>
+            <option value="PARTIAL">Partial</option>
+            <option value="FULL">Full</option>
+          </select>
+          <select id="plan-type" onchange="renderPlan()">
+            <option value="all">Active + Planned</option>
+            <option value="active">Active only</option>
+            <option value="planned">Planned only</option>
+          </select>
+          <button class="ml-auto" onclick="exportCSV('plan')">⬇ Export</button>
+        </div>
+        <div class="tbl-wrap">
+          <table id="tbl-plan"><thead><tr>
+            <th onclick="psort('rank')" style="width:34px">#</th>
+            <th onclick="psort('flag')" style="width:70px">Priority</th>
+            <th onclick="psort('prod')" style="width:130px">Product</th>
+            <th onclick="psort('desc')" style="width:220px">Description</th>
+            <th onclick="psort('active_qty')" style="width:75px">Active Qty</th>
+            <th onclick="psort('planned_qty')" style="width:75px">Planned Qty</th>
+            <th onclick="psort('build_now')" style="width:75px">Build Now</th>
+            <th onclick="psort('build_po')" style="width:80px">Build+POs</th>
+            <th onclick="psort('pct_now')" style="width:65px">% Now</th>
+            <th onclick="psort('n_blocking')" style="width:75px">Blocking</th>
+            <th onclick="psort('first_due')" style="width:90px">First Due</th>
+            <th onclick="psort('status')" style="width:90px">Status</th>
+          </tr></thead><tbody id="plan-body"></tbody></table>
+        </div>
+      </div>
     </div>
   </div>
 
-  <!-- ── SHORTAGES ── -->
+  <!-- SHORTAGES -->
   <div id="tab-shortage" class="tab-panel">
     <div class="toolbar">
-      <select id="s-prod" onchange="renderShortage()" style="max-width:260px;"></select>
-      <input type="text" id="s-prod-search" placeholder="Search product name…" oninput="filterProdSelect()" style="width:180px;">
-      <input type="text" id="s-search" placeholder="Search item / supplier…" oninput="renderShortage()">
-      <select id="s-type" onchange="renderShortage()">
-        <option value="all">All types</option>
-        <option value="EL">EL</option><option value="ME">ME</option>
-        <option value="SMT">SMT</option><option value="T.H">T.H</option>
-        <option value="AS">AS</option><option value="PCK">PCK</option>
-      </select>
-      <select id="s-wo" onchange="renderShortage()">
-        <option value="all">Active + Sim</option>
-        <option value="active">Active only</option>
-        <option value="sim">Sim only</option>
-      </select>
-      <span id="s-count" style="font-size:.78rem;color:var(--muted);"></span>
-      <button class="btn ml-auto" onclick="exportCSV('shortage')">⬇ Export</button>
+      <select id="sh-prod" onchange="renderShortage()" style="max-width:260px"></select>
+      <input type="text" id="sh-search" placeholder="Search component…" oninput="renderShortage()">
+      <button class="ml-auto" onclick="exportCSV('shortage')">⬇ Export</button>
     </div>
     <div class="tbl-wrap">
       <table id="tbl-shortage"><thead><tr>
-        <th style="width:60px">WO</th>
-        <th style="width:110px">Item</th>
-        <th style="width:200px">Description</th>
-        <th style="width:38px">Type</th>
+        <th style="width:130px">Component</th>
+        <th style="width:220px">Description</th>
+        <th style="width:50px">QPA</th>
         <th style="width:80px">Need Total</th>
-        <th style="width:70px">Short Qty</th>
-        <th style="width:65px">LIM Total</th>
-        <th style="width:180px">Remarks</th>
-        <th style="width:160px">Supplier</th>
-        <th style="width:55px">LT (d)</th>
-        <th style="width:260px">Supply schedule (per WO)</th>
-        <th style="width:110px">Shortage resolved</th>
-        <th class="sol-hdr" style="width:200px">★ Alt Part</th>
-        <th class="sol-hdr" style="width:200px">★ Alt Supplier</th>
-        <th class="sol-hdr" style="width:200px">★ Split Order</th>
-        <th class="sol-hdr" style="width:200px">★ Reallocate</th>
-        <th class="sol-hdr" style="width:200px">★ Partial Build</th>
-      </tr></thead>
-      <tbody id="s-body"></tbody></table>
+        <th style="width:80px">On Hand</th>
+        <th style="width:80px">Short Now</th>
+        <th style="width:80px">PO Covers</th>
+        <th style="width:80px">Remaining</th>
+        <th style="width:100px">Resolved By</th>
+        <th style="width:150px">Supplier</th>
+        <th>Open POs</th>
+      </tr></thead><tbody id="sh-body"></tbody></table>
     </div>
   </div>
 
-  <!-- ── EARLY WARNING ── -->
-  <div id="tab-warning" class="tab-panel">
-    <div class="warn-banner">⚠ Parts currently on track but projected to go short. Act before they escalate.</div>
+  <!-- SHARED COMPONENTS -->
+  <div id="tab-shared" class="tab-panel">
     <div class="toolbar">
-      <div class="slider-row">
-        <span style="font-size:.8rem;color:var(--muted);">Horizon:</span>
-        <input type="range" id="wk-range" min="1" max="12" value="4" oninput="document.getElementById('wk-val').textContent=this.value+' wks';renderWarning()">
-        <span id="wk-val" style="font-size:.85rem;font-weight:700;color:var(--accent);min-width:44px;">4 wks</span>
-      </div>
-      <input type="text" id="w-search" placeholder="Search…" oninput="renderWarning()">
-      <button class="btn ml-auto" onclick="exportCSV('warning')">⬇ Export</button>
+      <input type="text" id="sc-search" placeholder="Search component…" oninput="renderShared()">
+      <span id="sc-count" style="font-size:.78rem;color:var(--muted)"></span>
+      <button class="ml-auto" onclick="exportCSV('shared')">⬇ Export</button>
     </div>
     <div class="tbl-wrap">
-      <table id="tbl-warning"><thead><tr>
-        <th style="width:60px">WO</th>
-        <th style="width:110px">Item</th>
-        <th style="width:180px">Description</th>
-        <th style="width:130px">Product</th>
-        <th style="width:88px">Due</th>
-        <th style="width:65px">Days Away</th>
-        <th style="width:80px">Proj. Gap</th>
-        <th style="width:70px">Risk</th>
-        <th style="width:160px">Supplier</th>
-        <th class="sol-hdr" style="width:200px">★ Alt Supplier</th>
-        <th class="sol-hdr" style="width:200px">★ Partial Build</th>
-      </tr></thead>
-      <tbody id="w-body"></tbody></table>
+      <table id="tbl-shared"><thead><tr>
+        <th style="width:130px">Component</th>
+        <th style="width:200px">Description</th>
+        <th style="width:80px">On Hand</th>
+        <th style="width:90px">Total Need</th>
+        <th style="width:80px">Shortage</th>
+        <th style="width:70px">Products</th>
+        <th>Used by (product → need qty)</th>
+      </tr></thead><tbody id="sc-body"></tbody></table>
     </div>
   </div>
 
-  <!-- ── ROOT CAUSE ── -->
-  <div id="tab-rootcause" class="tab-panel">
-    <div class="kpi-strip" id="rc-kpi" style="margin-bottom:14px;"></div>
+  <!-- OPEN POs -->
+  <div id="tab-po" class="tab-panel">
     <div class="toolbar">
-      <select id="rc-filter" onchange="renderRC()">
-        <option value="all">All root causes</option>
-      </select>
-      <input type="text" id="rc-search" placeholder="Search item / supplier…" oninput="renderRC()">
-      <button class="btn ml-auto" onclick="exportCSV('rootcause')">⬇ Export</button>
+      <input type="text" id="po-search" placeholder="Search item / supplier…" oninput="renderPO()">
+      <span id="po-count" style="font-size:.78rem;color:var(--muted)"></span>
+      <button class="ml-auto" onclick="exportCSV('po')">⬇ Export</button>
     </div>
     <div class="tbl-wrap">
-      <table id="tbl-rootcause"><thead><tr>
-        <th style="width:60px">WO</th>
-        <th style="width:110px">Item</th>
-        <th style="width:180px">Description</th>
-        <th style="width:38px">Type</th>
-        <th style="width:130px">Product</th>
-        <th style="width:160px">Supplier</th>
-        <th style="width:55px">LT (d)</th>
-        <th style="width:88px">Due</th>
-        <th style="width:88px">Supply Due</th>
-        <th style="width:150px">Root Cause</th>
-        <th class="sol-hdr" style="width:200px">★ Alt Part</th>
-        <th class="sol-hdr" style="width:200px">★ Alt Supplier</th>
-        <th class="sol-hdr" style="width:200px">★ Reallocate</th>
-      </tr></thead>
-      <tbody id="rc-body"></tbody></table>
+      <table id="tbl-po"><thead><tr>
+        <th style="width:130px">Item</th>
+        <th style="width:200px">Description</th>
+        <th style="width:90px">Order</th>
+        <th style="width:80px">Back Order</th>
+        <th style="width:100px">ETA</th>
+        <th style="width:70px">Days Away</th>
+        <th style="width:150px">Supplier</th>
+        <th>Unblocks products</th>
+      </tr></thead><tbody id="po-body"></tbody></table>
     </div>
   </div>
 
-  <!-- ── TIADUF ── -->
-  <div id="tab-tiaduf" class="tab-panel">
-    <div class="info-banner">🔀 Components flagged for priority allocation across multiple products. Review with planning before reallocating.</div>
-    <div class="toolbar">
-      <input type="text" id="t-search" placeholder="Search item / product…" oninput="renderTiaduf()">
-      <button class="btn ml-auto" onclick="exportCSV('tiaduf')">⬇ Export</button>
-    </div>
-    <div class="tbl-wrap">
-      <table id="tbl-tiaduf"><thead><tr>
-        <th style="width:60px">WO</th>
-        <th style="width:110px">Item</th>
-        <th style="width:180px">Description</th>
-        <th style="width:38px">Type</th>
-        <th style="width:130px">Product</th>
-        <th style="width:88px">Due</th>
-        <th style="width:70px">Short Qty</th>
-        <th style="width:280px">TIADUF Note</th>
-        <th style="width:160px">Supplier</th>
-        <th class="sol-hdr" style="width:200px">★ Reallocate</th>
-        <th class="sol-hdr" style="width:200px">★ Alt Part</th>
-        <th class="sol-hdr" style="width:200px">★ Partial Build</th>
-      </tr></thead>
-      <tbody id="t-body"></tbody></table>
-    </div>
-  </div>
-
-  <!-- ── EXPEDITE ── -->
-  <div id="tab-expedite" class="tab-panel">
-    <div class="exp-grid">
-      <div>
-        <div class="form-group">
-          <label>Select component to expedite</label>
-          <select id="exp-select" onchange="buildEmail()"></select>
-        </div>
-        <div class="form-group">
-          <label>Your name</label>
-          <input type="text" id="exp-name" placeholder="e.g. David Cohen" oninput="buildEmail()">
-        </div>
-        <div class="form-group">
-          <label>Urgency tone</label>
-          <select id="exp-tone" onchange="buildEmail()">
-            <option value="standard">Standard — professional request</option>
-            <option value="urgent">Urgent — production at risk</option>
-            <option value="critical">Critical — line stoppage imminent</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Additional notes (optional)</label>
-          <textarea id="exp-notes" placeholder="e.g. Customer delivery on June 1st depends on this WO." oninput="buildEmail()"></textarea>
-        </div>
-        <div class="form-group" id="exp-subject-box">
-          <label>Subject</label>
-          <input type="text" id="exp-subject" readonly>
-        </div>
-      </div>
-      <div>
-        <div class="form-group">
-          <label>Email body</label>
-          <div id="exp-output"></div>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-          <button class="btn btn-accent" onclick="copyExp('body')">📋 Copy body</button>
-          <button class="btn" onclick="copyExp('full')">📋 Copy with subject</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── SUMMARY ── -->
+  <!-- SUMMARY -->
   <div id="tab-summary" class="tab-panel">
     <div class="toolbar">
-      <select id="sum-aud" onchange="buildSummary()">
+      <select id="sum-aud">
         <option value="mgmt">Senior Management</option>
         <option value="prod">Production / Planning</option>
       </select>
-      <input type="text" id="sum-author" placeholder="Prepared by…" oninput="buildSummary()" style="width:180px;">
-      <button class="btn btn-accent ml-auto" onclick="copySummary()">📋 Copy Report</button>
+      <input type="text" id="sum-author" placeholder="Prepared by…" style="width:160px" oninput="buildSummary()">
+      <button class="btn-accent ml-auto" onclick="copySummary()">📋 Copy</button>
     </div>
-    <div id="sum-output"></div>
+    <div id="sum-out"></div>
   </div>
-
-  <!-- ── RAW DATA ── -->
-  <div id="tab-rawdata" class="tab-panel">
-    <div class="info-banner">📂 This is the raw CTB file you uploaded — all rows, no filtering.</div>
-    <div class="toolbar">
-      <input type="text" id="rd-search" placeholder="Search any column…" oninput="renderRawData()">
-      <span id="rd-count" style="font-size:.78rem;color:var(--muted);"></span>
-      <button class="btn ml-auto" onclick="exportCSV('rawdata')">⬇ Export</button>
-    </div>
-    <div class="tbl-wrap"><table id="tbl-rawdata"><thead><tr id="rd-head"></tr></thead><tbody id="rd-body"></tbody></table></div>
-  </div>
-
-  <!-- ── BOM ── -->
-  <div id="tab-bom" class="tab-panel">
-    <div class="info-banner">🔩 Upload your Indented BOM file to cross-reference with shortage data.</div>
-    <div style="max-width:480px;margin-bottom:20px;">
-      <div id="bom-drop" onclick="document.getElementById('bom-input').click()"
-        style="border:2px dashed var(--border);border-radius:12px;padding:32px 24px;text-align:center;cursor:pointer;transition:border-color .2s;">
-        <div style="font-size:2rem;margin-bottom:10px;">🔩</div>
-        <div style="font-weight:600;margin-bottom:6px;">Upload BOM File</div>
-        <div style="font-size:.82rem;color:var(--muted);margin-bottom:14px;">Select your Indented BOM .xlsx from Teams / Files</div>
-        <label class="upload-btn" style="font-size:.85rem;padding:8px 20px;">Choose BOM File</label>
-      </div>
-      <input type="file" id="bom-input" accept=".xlsx,.xlsm,.xls" style="display:none">
-      <div id="bom-status" style="margin-top:10px;font-size:.82rem;color:var(--muted);"></div>
-    </div>
-    <div class="toolbar" id="bom-toolbar" style="display:none;">
-      <input type="text" id="bom-search" placeholder="Search item / description…" oninput="renderBOM()">
-      <select id="bom-prod" onchange="renderBOM()" style="max-width:260px;"></select>
-      <button class="btn ml-auto" onclick="exportCSV('bom')">⬇ Export</button>
-    </div>
-    <div class="tbl-wrap"><table id="tbl-bom"><thead><tr id="bom-head"></tr></thead><tbody id="bom-body"></tbody></table></div>
-  </div>
-
 </div>
 
-<!-- ══════════════════════════════════════════════════
-     SheetJS (reads .xlsx in browser — iPad + Windows)
-     ══════════════════════════════════════════════════ -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 'use strict';
 
-// ════════════════════════════════════
+// ══════════════════════════════════════
 // STATE
-// ════════════════════════════════════
-let DATA = [];          // all parsed component rows
-let PRODUCTS = [];      // product-level summaries
-let ALL_SHORTS = [];    // flat shortage rows with solutions
-let ITEM_TO_TOPS = {};  // item -> [{top, due, short}]
+// ══════════════════════════════════════
+const FILES = { bom: null, order: null, inv: null, po: null };
+const FILE_NAMES = {};
+let INVENTORY = {};       // item -> qty
+let PO_BY_ITEM = {};      // item -> [{qty,eta,supplier,order}]
+let BOM_BY_PROD = {};     // prod -> [{comp,desc,qpa,supplier}]
+let ORDERS_BY_PROD = {};  // prod -> [{date,order,qty,type,status}]
+let PROD_DESC = {};       // prod -> description
+let COMP_DESC = {};       // comp -> description
+let COMP_SUPPLIER = {};   // comp -> supplier from BOM
 
-let rSortCol = 'days_away', rSortDir = 1;
+let RESULTS = [];         // allocation results
+let PRIORITY = [];        // ordered list of product IDs
+let FLAGS = {};           // prod -> 'critical'|'normal'|'low'
+let planSortCol = 'rank', planSortDir = 1;
+
 const TODAY = new Date(); TODAY.setHours(0,0,0,0);
-const TODAY_STR = TODAY.toLocaleDateString('en-GB');
+const EPOCH = new Date(1970,0,1);
+const fd = d => d instanceof Date && d > EPOCH ? d.toLocaleDateString('en-GB') : '—';
+const daysDiff = d => d instanceof Date ? Math.ceil((d - TODAY) / 86400000) : 9999;
 
-// ════════════════════════════════════
-// FILE UPLOAD
-// ════════════════════════════════════
-const fileInput = document.getElementById('file-input');
-const dropZone  = document.getElementById('drop-zone');
-
-fileInput.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
-dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-dropZone.addEventListener('drop', e => {
-  e.preventDefault(); dropZone.classList.remove('drag-over');
-  if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
-});
-
-function loadFile(file) {
-  showLoading('Reading ' + file.name + '…');
+// ══════════════════════════════════════
+// FILE LOADING
+// ══════════════════════════════════════
+function fileLoaded(key, input) {
+  if (!input.files[0]) return;
+  const file = input.files[0];
+  FILE_NAMES[key] = file.name;
   const reader = new FileReader();
   reader.onload = e => {
-    try {
-      const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
-      // Find CTB sheet — look for sheet named 'CTB' first, else first sheet
-      const sheetName = wb.SheetNames.find(n => n.trim().toUpperCase() === 'CTB') || wb.SheetNames[0];
-      showLoading('Parsing ' + sheetName + '…');
-      const ws = wb.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false });
-      setTimeout(() => { parseAndRender(rows, file.name); }, 50);
-    } catch(err) {
-      hideLoading();
-      alert('Could not read file: ' + err.message + '\n\nMake sure it is a .xlsx CTB file.');
-    }
+    FILES[key] = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+    document.getElementById(`uc-${key}`).classList.add('loaded');
+    document.getElementById(`uc-${key}-status`).textContent = `✓ ${file.name}`;
+    const allLoaded = Object.values(FILES).every(f => f !== null);
+    document.getElementById('run-btn').disabled = !allLoaded;
   };
   reader.readAsArrayBuffer(file);
 }
 
-// ════════════════════════════════════
-// PARSE CTB ROWS
-// ════════════════════════════════════
+// ══════════════════════════════════════
+// PARSE ALL 4 FILES
+// ══════════════════════════════════════
+function parseAll() {
+  // ── INVENTORY ──
+  showLoad('Parsing inventory…');
+  INVENTORY = {};
+  const invWs = FILES.inv.Sheets[FILES.inv.SheetNames[0]];
+  const invRows = XLSX.utils.sheet_to_json(invWs, { header:1, defval:null });
+  invRows.slice(1).forEach(r => {
+    if (r[0]) INVENTORY[String(r[0]).trim()] = parseFloat(r[1] || 0) || 0;
+  });
+
+  // ── OPEN POs ──
+  showLoad('Parsing open POs…');
+  PO_BY_ITEM = {};
+  const poWs = FILES.po.Sheets[FILES.po.SheetNames[0]];
+  const poRows = XLSX.utils.sheet_to_json(poWs, { header:1, defval:null, raw:false });
+  // col0=item, col25=back_order, col30=current_planned_receipt_date, col19=supplier_name, col8=order, col1=description
+  poRows.slice(1).forEach(r => {
+    const item = String(r[0] || '').trim();
+    const qty  = parseFloat(r[25] || 0) || 0;
+    const eta  = parseDate(r[30]);
+    const supp = String(r[19] || '').trim();
+    const ord  = String(r[8] || '').trim();
+    const desc = String(r[1] || '').trim();
+    if (item && qty > 0 && eta) {
+      if (!PO_BY_ITEM[item]) PO_BY_ITEM[item] = [];
+      PO_BY_ITEM[item].push({ qty, eta, supplier: supp, order: ord, desc });
+    }
+  });
+
+  // ── BOM ──
+  showLoad('Parsing BOM…');
+  BOM_BY_PROD = {}; PROD_DESC = {}; COMP_DESC = {}; COMP_SUPPLIER = {};
+  const bomWs = FILES.bom.Sheets['Indented BOM'] || FILES.bom.Sheets[FILES.bom.SheetNames[0]];
+  const bomRows = XLSX.utils.sheet_to_json(bomWs, { header:1, defval:null });
+  // col0=FlatBOM#, col3=level, col4=FlatComp, col5=desc, col10=QPA, col26=supplier
+  bomRows.slice(1).forEach(r => {
+    const prod = String(r[0] || '').trim();
+    const lvl  = parseInt(r[3] || 0);
+    const comp = String(r[4] || '').trim();
+    const desc = String(r[5] || '').trim();
+    const qpa  = parseFloat(r[10] || 0) || 0;
+    const supp = String(r[26] || '').trim();
+    if (!prod || !comp) return;
+    if (lvl === 0) {
+      PROD_DESC[prod] = desc;
+    } else if (qpa > 0) {
+      if (!BOM_BY_PROD[prod]) BOM_BY_PROD[prod] = [];
+      BOM_BY_PROD[prod].push({ comp, desc, qpa, supplier: supp });
+      COMP_DESC[comp] = COMP_DESC[comp] || desc;
+      COMP_SUPPLIER[comp] = COMP_SUPPLIER[comp] || supp;
+    }
+  });
+
+  // ── ORDER PLAN ──
+  showLoad('Parsing order plan…');
+  ORDERS_BY_PROD = {};
+  const ordWs = FILES.order.Sheets[FILES.order.SheetNames[0]];
+  const ordRows = XLSX.utils.sheet_to_json(ordWs, { header:1, defval:null, raw:false });
+  // col0=date, col1=order, col3=item, col4=order_type, col5=status
+  // col6=demand, col7=sched_receipt, col8=planned_supply, col11=father_item
+  ordRows.slice(1).forEach(r => {
+    const otype  = String(r[4] || '').trim();
+    const father = String(r[11] || '').trim();
+    const item   = String(r[3] || '').trim();
+    if (!father || father !== item) return; // only product-level rows
+    if (!['Production Order', 'Planned Production Order'].includes(otype)) return;
+    const date   = parseDate(r[0]);
+    const order  = String(r[1] || '').trim();
+    const status = String(r[5] || '').trim();
+    const qty    = otype === 'Production Order'
+                   ? (parseFloat(r[7] || 0) || 0)   // Sched. Receipt
+                   : (parseFloat(r[8] || 0) || 0);  // Planned Supply
+    if (qty <= 0) return;
+    if (!ORDERS_BY_PROD[item]) ORDERS_BY_PROD[item] = [];
+    ORDERS_BY_PROD[item].push({
+      date, order, qty, status,
+      type: otype === 'Production Order' ? 'active' : 'planned'
+    });
+    // Ensure product desc
+    if (!PROD_DESC[item] && BOM_BY_PROD[item]) PROD_DESC[item] = '';
+  });
+}
+
 function parseDate(v) {
   if (!v) return null;
-  if (v instanceof Date) return v;
+  if (v instanceof Date) return isNaN(v) ? null : (v <= EPOCH ? null : v);
   if (typeof v === 'string' && v.trim()) {
-    // Try DD/MM/YYYY, YYYY-MM-DD, and JS native
-    const parts = v.trim().split(/[\/\-]/);
-    if (parts.length === 3) {
-      const d1 = new Date(v);
-      if (!isNaN(d1)) return d1;
+    const parts = v.trim().split(/[\/\-T ]/);
+    if (parts.length >= 3) {
+      // Try YYYY-MM-DD first
+      const d1 = new Date(v.trim().split('T')[0]);
+      if (!isNaN(d1) && d1 > EPOCH) return d1;
       // Try DD/MM/YYYY
       const d2 = new Date(`${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`);
-      if (!isNaN(d2)) return d2;
+      if (!isNaN(d2) && d2 > EPOCH) return d2;
     }
   }
   return null;
 }
 
-function flt(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
-function fd(d)  { return d instanceof Date ? d.toLocaleDateString('en-GB') : (d || '—'); }
-function daysDiff(d) { if (!d) return 9999; return Math.ceil((d - TODAY) / 86400000); }
+// ══════════════════════════════════════
+// ALLOCATION ENGINE
+// ══════════════════════════════════════
+function runAllocation() {
+  const pool = { ...INVENTORY };
+  RESULTS = [];
 
-// Detect column layout from header row
-function detectCols(headerRow) {
-  // Ribbon layout (CTB_28_05): 28 cols, Avail Stck at col 9
-  // Old layout (CTB_28_04):  different col map
-  // Strategy: scan header for key labels, fall back to positional
-  const h = (headerRow || []).map(v => String(v || '').trim().toUpperCase());
-  const find = (...labels) => { for (const l of labels) { const i = h.indexOf(l); if (i >= 0) return i; } return -1; };
-  const TOP       = find('TOP','TOP PART') >= 0 ? find('TOP','TOP PART') : 0;
-  const TOP_DESC  = TOP + 1;
-  const TOP_DUE   = find('PLAN DATE','DUE DATE','PLANNED DUE') >= 0 ? find('PLAN DATE','DUE DATE','PLANNED DUE') : 2;
-  const WO_ID     = find('ID','WO ID','ORDER NO') >= 0 ? find('ID','WO ID','ORDER NO') : 3;  // col3 = "Id" (ECI006701:1)
-  const TOP_QTY   = find('QTY','QUANTITY','QTY TOP') >= 0 ? find('QTY','QUANTITY','QTY TOP') : 4;
-  const PART      = find('PART','PART NUMBER') >= 0 ? find('PART','PART NUMBER') : 5;  // col5 = Part (same as TOP for level-0)
-  const ITEM      = find('ITEM','COMPONENT') >= 0 ? find('ITEM','COMPONENT') : 6;
-  const ITEM_DESC = ITEM + 1;
-  const TYPE      = find('TYPE','COMP TYPE') >= 0 ? find('TYPE','COMP TYPE') : 8;
-  // Ribbon-specific: Av Stck at 9, remarks at 11, TIADUF at 12, ONO at 14
-  const AV_STCK   = 9;
-  const REMARKS   = find('REMARKS','REMARK') >= 0 ? find('REMARKS','REMARK') : 11;
-  const TIADUF    = find('TIADUF') >= 0 ? find('TIADUF') : 12;
-  const LEVEL     = 15; const QPA = 16;
-  const NEED      = find('NEED QTY','NEED') >= 0 ? find('NEED QTY','NEED') : 18;
-  const SHORT     = find('TOTAL SHORT','SHORT QTY','SHORT') >= 0 ? find('TOTAL SHORT','SHORT QTY','SHORT') : 19;
-  const LIM       = find('LIMIT','LIM') >= 0 ? find('LIMIT','LIM') : 20;
-  const ORDER_ID  = find('ORDER ID','ORDER_ID','PO NUMBER') >= 0 ? find('ORDER ID','ORDER_ID','PO NUMBER') : 21;
-  const WO_STATUS = find('STATUS') >= 0 ? find('STATUS') : 22;
-  const SUP_QTY   = 23; const SUP_DUE = 24;
-  const SUPPLIER  = find('SUPPLIER','VENDOR') >= 0 ? find('SUPPLIER','VENDOR') : 25;
-  const LT        = find('LEAD TIME','LT','L/T') >= 0 ? find('LEAD TIME','LT','L/T') : 26;
-  const PLANNER   = 27;
-  return { TOP, TOP_DESC, TOP_DUE, TOP_QTY, WO_ID, PART, ITEM, ITEM_DESC, TYPE, AV_STCK,
-           REMARKS, TIADUF, LEVEL, QPA, NEED, SHORT, LIM, ORDER_ID, WO_STATUS,
-           SUP_QTY, SUP_DUE, SUPPLIER, LT, PLANNER };
-}
-
-function parseAndRender(rows, filename) {
-  showLoading('Analyzing shortages…');
-  // Find header row
-  let hdrIdx = 0;
-  for (let i = 0; i < Math.min(10, rows.length); i++) {
-    const r = rows[i];
-    if (r && (String(r[0]||'').trim().toUpperCase() === 'TOP' || String(r[6]||'').trim().toUpperCase() === 'ITEM')) {
-      hdrIdx = i; break;
-    }
-  }
-  const C = detectCols(rows[hdrIdx]);
-
-  window._lastRawRows = rows;  // keep for Raw Data tab
-  DATA = [];
-  for (let i = hdrIdx + 1; i < rows.length; i++) {
-    const r = rows[i];
-    if (!r || !r[C.TOP]) continue;
-    const top = String(r[C.TOP] || '').trim();
-    if (!top || top.toUpperCase() === 'TOP') continue;
-    const wo_status = String(r[C.WO_STATUS] || '');
-    DATA.push({
-      top,
-      top_desc:   String(r[C.TOP_DESC] || '').trim(),
-      due_top:    parseDate(r[C.TOP_DUE]),
-      qty_top:    flt(r[C.TOP_QTY]),
-      wo_id:      String(r[C.WO_ID] || '').trim(),   // e.g. "ECI006701:1" — unique per production WO
-      is_top_level: String(r[C.PART] || '').trim() === String(r[C.TOP] || '').trim(), // true when Part==TOP (level 0)
-      item:       String(r[C.ITEM] || '').trim(),
-      item_desc:  String(r[C.ITEM_DESC] || '').trim(),
-      type:       String(r[C.TYPE] || '').trim(),
-      avail:      String(r[C.AV_STCK] || '').trim().toUpperCase() === 'OK' ? 999999 : flt(r[C.AV_STCK]),
-      ok_flag:    String(r[C.AV_STCK] || '').trim().toUpperCase() === 'OK',
-      remarks:    String(r[C.REMARKS] || '').trim(),
-      tiaduf:     String(r[C.TIADUF] || '').trim(),
-      qty_per:    flt(r[C.QPA]) || 1,
-      need:       flt(r[C.NEED]),
-      short:      flt(r[C.SHORT]),
-      lim:        flt(r[C.LIM]),
-      order_id:   String(r[C.ORDER_ID] || '').trim(),
-      wo_status,
-      supply_qty: flt(r[C.SUP_QTY]),
-      due_supply: parseDate(r[C.SUP_DUE]),
-      supplier:   String(r[C.SUPPLIER] || '').trim(),
-      lt:         flt(r[C.LT]),
-      planner:    String(r[C.PLANNER] || '').trim(),
-      is_sim:     (()=>{ const m=String(r[C.WO_ID]||'').match(/^[A-Za-z\-]*(\d+)/); return m?m[1].startsWith('999'):false; })() || wo_status.includes('_Sim'),
-    });
-  }
-
-  // Build ITEM_TO_TOPS for reallocation logic
-  ITEM_TO_TOPS = {};
-  DATA.forEach(c => {
-    if (c.short > 0) {
-      if (!ITEM_TO_TOPS[c.item]) ITEM_TO_TOPS[c.item] = [];
-      ITEM_TO_TOPS[c.item].push({ top: c.top, due: c.due_top, short: c.short });
-    }
+  // Sort PRIORITY: Critical first, then Normal, then Low, within each group keep drag order
+  const flagOrder = { critical: 0, normal: 1, low: 2 };
+  const sorted = [...PRIORITY].sort((a, b) => {
+    const fa = flagOrder[FLAGS[a] || 'normal'];
+    const fb = flagOrder[FLAGS[b] || 'normal'];
+    if (fa !== fb) return fa - fb;
+    return PRIORITY.indexOf(a) - PRIORITY.indexOf(b);
   });
 
-  buildProducts();
-  buildFlatShortages();
-  showLoading('Rendering…');
+  sorted.forEach((prod, idx) => {
+    const bom    = BOM_BY_PROD[prod] || [];
+    const orders = (ORDERS_BY_PROD[prod] || []).slice().sort((a,b) => (a.date||new Date(9999,0,1)) - (b.date||new Date(9999,0,1)));
+    const active_qty  = orders.filter(o=>o.type==='active').reduce((s,o)=>s+o.qty,0);
+    const planned_qty = orders.filter(o=>o.type==='planned').reduce((s,o)=>s+o.qty,0);
+    const total_qty   = active_qty + planned_qty;
+    const first_due   = orders.find(o=>o.date)?.date || null;
+
+    const compAnalysis = bom.map(c => {
+      const need    = total_qty * c.qpa;
+      const onHand  = pool[c.comp] || 0;
+      // POs arriving before first_due
+      const pos     = (PO_BY_ITEM[c.comp] || []).sort((a,b)=>a.eta-b.eta);
+      const poBefore= pos.filter(p => !first_due || p.eta <= first_due).reduce((s,p)=>s+p.qty,0);
+      const poAll   = pos.reduce((s,p)=>s+p.qty,0);
+      const buildNow   = c.qpa > 0 ? Math.floor(onHand / c.qpa) : 0;
+      const buildPoDue = c.qpa > 0 ? Math.floor((onHand + poBefore) / c.qpa) : 0;
+      const buildPoAll = c.qpa > 0 ? Math.floor((onHand + poAll) / c.qpa) : 0;
+      const shortNow   = Math.max(0, need - onHand);
+      const shortPo    = Math.max(0, need - onHand - poBefore);
+      // Resolution date
+      let cumul = onHand; let resDate = null;
+      for (const p of pos) {
+        cumul += p.qty;
+        if (cumul >= need) { resDate = p.eta; break; }
+      }
+      return { ...c, need: Math.round(need*10)/10, onHand, poBefore, poAll,
+               buildNow, buildPoDue, buildPoAll,
+               shortNow: Math.round(shortNow*10)/10,
+               shortPo:  Math.round(shortPo*10)/10,
+               resDate, pos };
+    });
+
+    const buildNow   = compAnalysis.length ? Math.min(...compAnalysis.map(c=>c.buildNow))   : 0;
+    const buildPoDue = compAnalysis.length ? Math.min(...compAnalysis.map(c=>c.buildPoDue)) : 0;
+    const buildPoAll = compAnalysis.length ? Math.min(...compAnalysis.map(c=>c.buildPoAll)) : 0;
+    const blocking   = compAnalysis.filter(c=>c.shortNow>0);
+    const pctNow     = total_qty > 0 ? Math.round(buildNow / total_qty * 100) : (bom.length ? 100 : 0);
+    const pctPo      = total_qty > 0 ? Math.round(buildPoDue / total_qty * 100) : 0;
+    let status = buildNow >= total_qty ? 'FULL' : buildNow > 0 ? 'PARTIAL' : 'BLOCKED';
+    if (!bom.length) status = 'NO BOM';
+
+    // Consume from shared pool
+    compAnalysis.forEach(c => {
+      const alloc = Math.min(pool[c.comp] || 0, c.need);
+      pool[c.comp] = Math.max(0, (pool[c.comp] || 0) - alloc);
+    });
+
+    RESULTS.push({
+      prod, rank: idx + 1,
+      desc: PROD_DESC[prod] || '',
+      flag: FLAGS[prod] || 'normal',
+      active_qty, planned_qty, total_qty,
+      first_due, orders,
+      bom, compAnalysis,
+      buildNow, buildPoDue, buildPoAll,
+      blocking, n_blocking: blocking.length,
+      pctNow, pctPo, status,
+    });
+  });
+}
+
+// ══════════════════════════════════════
+// RUN ANALYSIS
+// ══════════════════════════════════════
+function runAnalysis() {
+  showLoad('Parsing files…');
   setTimeout(() => {
-    initUI(filename);
-    hideLoading();
+    try {
+      parseAll();
+      // Init priority from products in order plan
+      const prods = Object.keys(ORDERS_BY_PROD);
+      PRIORITY = prods;
+      prods.forEach(p => { if (!FLAGS[p]) FLAGS[p] = 'normal'; });
+      showLoad('Running allocation…');
+      setTimeout(() => {
+        try {
+          runAllocation();
+          initUI();
+          hideLoad();
+        } catch(e) {
+          hideLoad();
+          alert('Allocation error: ' + e.message);
+          console.error(e);
+        }
+      }, 50);
+    } catch(e) {
+      hideLoad();
+      alert('Parse error: ' + e.message);
+      console.error(e);
+    }
   }, 50);
 }
 
-// ════════════════════════════════════
-// PRODUCT SUMMARIES
-// ════════════════════════════════════
-function isShort(c) {
-  if (c.short > 0) return true;
-  if (c.lim > 0 && c.lim < c.need) return true;
-  const rem = c.remarks.toUpperCase();
-  if (rem.includes('LIM 0') || rem.includes('E2S') || rem.includes('NOPO')) return true;
-  return false;
+function recalculate() {
+  showLoad('Recalculating…');
+  setTimeout(() => {
+    runAllocation();
+    renderPlan();
+    renderShortage();
+    renderShared();
+    buildSummary();
+    updateKPIs();
+    hideLoad();
+    toast('Allocation recalculated ✓');
+  }, 30);
 }
 
-function rootCause(c) {
-  const rem = c.remarks.toUpperCase();
-  if (rem.includes('E2S')) return 'E2S — End of Supply';
-  if (rem.includes('NOPO') || c.wo_status.includes('NOPO')) return 'No PO — NOPO';
-  if (!c.order_id || ['','none','planned'].includes(c.order_id.toLowerCase())) return 'No PO coverage';
-  if (rem.includes('ETA 2027') || c.lt > 365) return 'Long lead time (2027+)';
-  if (c.due_supply && c.due_top && c.due_supply > c.due_top) return 'PO arriving late';
-  if (c.lim > 0 && c.lim < c.need) return 'Partial supply — LIM';
-  if (rem.includes('LIM 0')) return 'No confirmed supply';
-  return 'Supplier delay risk';
-}
-
-function buildSolutions(c) {
-  const rem = c.remarks.toUpperCase();
-  const isE2S  = rem.includes('E2S');
-  const isNopo = rem.includes('NOPO') || c.wo_status.includes('NOPO');
-  const hasAlt = rem.includes('ALT');
-  const supLate = c.due_supply && c.due_top && c.due_supply > c.due_top;
-  const lateDays = supLate ? Math.ceil((c.due_supply - c.due_top) / 86400000) : 0;
-  const shared = (ITEM_TO_TOPS[c.item] || []).filter(x => x.top !== c.top);
-  const ltInt = Math.round(c.lt);
-  const qpa = c.qty_per || 1;
-
-  // Alt part
-  let altPart = '';
-  if (hasAlt) {
-    const m = c.remarks.match(/ALT\s*[-:]\s*([\w\-]+)/i);
-    altPart = m ? `Use ALT: ${m[1]} — validate form/fit/function` : 'Alt part in remarks — verify PN and approve';
-  } else if (isE2S) {
-    altPart = 'E2S — find alternate PN urgently; check AVL';
-  } else if (isNopo && c.short > 0) {
-    altPart = 'No PO — check AVL for alternative PN with shorter LT';
-  }
-
-  // Alt supplier
-  let altSup = '';
-  if (isE2S) {
-    altSup = `E2S from ${c.supplier} — source via broker or alternate distributor immediately`;
-  } else if (lateDays > 0) {
-    const orderBy = c.due_top && ltInt ? new Date(c.due_top.getTime() - ltInt * 86400000).toLocaleDateString('en-GB') : 'ASAP';
-    altSup = `PO late by ${lateDays}d — expedite ${c.supplier} or spot-buy ${Math.round(c.short)} units. Alt order by ${orderBy}`;
-  } else if (isNopo) {
-    const orderBy = c.due_top && ltInt ? new Date(c.due_top.getTime() - ltInt * 86400000).toLocaleDateString('en-GB') : 'ASAP';
-    altSup = `No PO — issue RFQ to alt distributors. Must order by ${orderBy} (LT ${ltInt}d)`;
-  } else if (c.lt > 90 && c.short > 0) {
-    altSup = `LT ${ltInt}d too long — find spot market or distributor with faster availability`;
-  }
-
-  // Split order
-  let split = '';
-  if (c.lim > 0 && c.lim < c.need) {
-    const gap = Math.round(c.need - c.lim);
-    split = `LIM ${Math.round(c.lim)} confirmed vs ${Math.round(c.need)} needed — place supplemental PO for ${gap} units`;
-  } else if (lateDays > 0 && c.short > 0) {
-    split = `Split: expedite partial from ${c.supplier} for ${fd(c.due_top)}; source ${Math.round(c.short)} shortage units from spot market`;
-  } else if (isE2S && c.avail > 0) {
-    split = `E2S: ${Math.round(c.avail)} on-hand may cover partial build; source balance from broker`;
-  }
-
-  // Realloc
-  let realloc = '';
-  if (c.tiaduf && c.tiaduf.length > 2) {
-    realloc = `TIADUF: ${c.tiaduf.substring(0, 140)} — review allocation priority with planning`;
-  } else if (shared.length > 0) {
-    const latest = shared.sort((a,b) => (b.due||new Date(0)) - (a.due||new Date(0)))[0];
-    realloc = `Also short on ${shared.length} other product(s) — consider realloc from later-due: ${latest.top} (${fd(latest.due)})`;
-  }
-
-  // Partial build
-  let partial = '';
-  const availForBuild = c.ok_flag ? 0 : (c.avail > 0 ? c.avail : 0);
-  if (availForBuild > 0 && c.short > 0) {
-    const units = Math.floor(availForBuild / qpa);
-    partial = units > 0
-      ? `Can build ~${units} unit(s) with ${Math.round(availForBuild)} on-hand (QPA=${qpa}); ${Math.round(c.short)} units still need supply`
-      : `On-hand ${Math.round(availForBuild)} < QPA ${qpa} — insufficient for even 1 unit`;
-  } else if (c.lim > 0 && c.lim < c.need) {
-    partial = `LIM allows partial build of ~${Math.floor(c.lim/qpa)} unit(s); balance needs supply`;
-  }
-
-  return { altPart, altSup, split, realloc, partial };
-}
-
-function buildProducts() {
-  const byTop = {};
-  DATA.forEach(c => {
-    if (!byTop[c.top]) byTop[c.top] = { active: [], sim: [] };
-    if (c.is_sim) byTop[c.top].sim.push(c);
-    else          byTop[c.top].active.push(c);
-  });
-
-  PRODUCTS = Object.entries(byTop).map(([top, grp]) => {
-    const all = [...grp.active, ...grp.sim];
-    const td = all[0];
-    // CORRECT QTY: col3 (Id) contains production WO IDs like "ECI006701:1".
-    // The same Id repeats for every component in that WO — deduplicate.
-    // ECI naming convention: ECI999xxx = Simulation WO, ECI006xxx = Active WO.
-    // Exclude supply PO IDs (2400L..., 2400O..., Planned, etc.)
-    // Prefix-agnostic WO classification — works for ECI-, RBBN-, or any prefix.
-    // Rule: extract the numeric part after any alpha/dash prefix.
-    //   999xxx → Simulation WO (planned, not released)
-    //   any other number → Active WO
-    const extractWONum  = id => { const m = String(id||'').match(/^[A-Za-z\-]*(\d+)/); return m ? m[1] : null; };
-    const isProductionWO = id => extractWONum(id) !== null;
-    const isSimWO        = id => { const n = extractWONum(id); return n ? n.startsWith('999') : false; };
-    const seenA = {}, seenS = {};
-    [...grp.active, ...grp.sim].forEach(c => {
-      if (!isProductionWO(c.wo_id)) return;
-      if (isSimWO(c.wo_id)) {
-        if (!(c.wo_id in seenS)) seenS[c.wo_id] = c.qty_top;
-      } else {
-        if (!(c.wo_id in seenA)) seenA[c.wo_id] = c.qty_top;
-      }
-    });
-    const active_qty = Object.values(seenA).reduce((s,v)=>s+v,0);
-    const sim_qty    = Object.values(seenS).reduce((s,v)=>s+v,0);
-    const shortComps = all.filter(isShort);
-    const has_e2s  = shortComps.some(c => c.remarks.toUpperCase().includes('E2S'));
-    const has_nopo = shortComps.some(c => c.remarks.toUpperCase().includes('NOPO') || c.wo_status.includes('NOPO'));
-    const n_short  = shortComps.length;
-    const status   = n_short === 0 ? 'CLEAR' : (has_e2s || has_nopo ? 'FULLY BLOCKED' : 'AT RISK');
-    return {
-      top, top_desc: td.top_desc, due: td.due_top,
-      due_str: fd(td.due_top),
-      active_qty, sim_qty, total_qty: active_qty + sim_qty,
-      has_sim: grp.sim.length > 0, has_active: grp.active.length > 0,
-      n_all: all.length, n_short, pct_short: all.length ? Math.round(n_short/all.length*100) : 0,
-      status, has_e2s, has_nopo,
-      days_away: daysDiff(td.due_top),
-      all_rows: all, short_comps: shortComps,
-    };
-  });
-
-  PRODUCTS.sort((a,b) => {
-    const so = { 'FULLY BLOCKED':0,'AT RISK':1,'CLEAR':2 };
-    return (so[a.status]??9) - (so[b.status]??9) || (a.days_away - b.days_away);
-  });
-  PRODUCTS.forEach((p,i) => p.rank = i+1);
-}
-
-function buildFlatShortages() {
-  ALL_SHORTS = [];
-  PRODUCTS.forEach(p => {
-    p.short_comps.forEach(c => {
-      const rc = rootCause(c);
-      const sols = buildSolutions(c);
-      ALL_SHORTS.push({ ...c, prod_status: p.status, rc, days_away: daysDiff(c.due_top), ...sols });
-    });
-  });
-  ALL_SHORTS.sort((a,b) => a.days_away - b.days_away || -(a.short - b.short));
-}
-
-// ════════════════════════════════════
-// UI INIT
-// ════════════════════════════════════
-function initUI(filename) {
-  const n_blocked = PRODUCTS.filter(p=>p.status==='FULLY BLOCKED').length;
-  const n_risk    = PRODUCTS.filter(p=>p.status==='AT RISK').length;
-  const n_clear   = PRODUCTS.filter(p=>p.status==='CLEAR').length;
-  const n_mixed   = PRODUCTS.filter(p=>p.has_sim&&p.has_active).length;
-  const tot_a     = PRODUCTS.reduce((s,p)=>s+p.active_qty,0);
-  const tot_s     = PRODUCTS.reduce((s,p)=>s+p.sim_qty,0);
-
-  // KPI strip
-  document.getElementById('kpi-strip').innerHTML = [
-    ['Total Products', PRODUCTS.length, '', ''],
-    ['Fully Blocked',  n_blocked, 'var(--red)', ''],
-    ['At Risk',        n_risk,    'var(--orange)', ''],
-    ['Clear',          n_clear,   'var(--green)', ''],
-    ['E2S Items',      ALL_SHORTS.filter(c=>c.rc.includes('E2S')).length, 'var(--red)', ''],
-    ['No PO / NOPO',   ALL_SHORTS.filter(c=>c.rc.includes('No PO')).length, 'var(--orange)', ''],
-    ['Active Qty',     Math.round(tot_a), 'var(--accent)', ''],
-    ['Sim Qty',        Math.round(tot_s), 'var(--sim)', 'Planned'],
-  ].map(([lbl,val,fg,sub]) =>
-    `<div class="kpi-card"><div class="kpi-label">${lbl}</div><div class="kpi-val" style="color:${fg||'var(--text)'}">${val}</div>${sub?`<div class="kpi-sub">${sub}</div>`:''}</div>`
-  ).join('');
-
-  // Sim banner
-  if (n_mixed > 0) {
-    document.getElementById('sim-banner').style.display='';
-    document.getElementById('sim-banner').innerHTML = `🔵 <strong>${n_mixed} products</strong> have both Active WOs and Simulation WOs. Sim WOs (planned demand, not yet released) are shown in <span style="color:var(--sim)">purple</span> and included in shortage analysis.`;
-  }
-
-  // Health badge
-  const hEl = document.getElementById('topbar-health');
-  hEl.style.display = '';
-  hEl.textContent = n_blocked > 3 ? '⚠ CRITICAL' : n_blocked > 0 ? '⚡ ELEVATED' : '✓ STABLE';
-  hEl.className = 'badge ' + (n_blocked > 3 ? 'b-blocked health-critical' : n_blocked > 0 ? 'b-risk health-elevated' : 'b-clear health-stable');
-
-  document.getElementById('topbar-date').textContent = filename + ' · ' + TODAY_STR;
-  document.getElementById('btn-reset').style.display = '';
-
-  // Shortage product selector
-  const sel = document.getElementById('s-prod');
-  sel.innerHTML = PRODUCTS.filter(p=>p.n_short>0).map(p =>
-    `<option value="${p.top}">${p.top} — ${p.top_desc.substring(0,40)} (${p.n_short} short)</option>`
-  ).join('');
-
-  // Expedite selector
-  buildExpSelect();
-
-  // RC filter
-  const rcCounts = {};
-  ALL_SHORTS.forEach(c => { rcCounts[c.rc] = (rcCounts[c.rc]||0) + 1; });
-  const rcSel = document.getElementById('rc-filter');
-  rcSel.innerHTML = '<option value="all">All root causes</option>' +
-    Object.entries(rcCounts).sort((a,b)=>b[1]-a[1]).map(([k,v])=>
-      `<option value="${k}">${k} (${v})</option>`
-    ).join('');
-
-  // RC KPI
-  document.getElementById('rc-kpi').innerHTML = Object.entries(rcCounts).sort((a,b)=>b[1]-a[1]).map(([k,v]) => {
-    const fg = k.includes('E2S') ? 'var(--red)' : k.includes('No PO') ? 'var(--orange)' : k.includes('late') ? 'var(--sol2)' : 'var(--sol3)';
-    return `<div class="kpi-card"><div class="kpi-label" style="font-size:.65rem">${k}</div><div class="kpi-val" style="font-size:1.3rem;color:${fg}">${v}</div></div>`;
-  }).join('');
-
+// ══════════════════════════════════════
+// INIT UI
+// ══════════════════════════════════════
+function initUI() {
   document.getElementById('upload-screen').style.display = 'none';
   document.getElementById('main').style.display = 'block';
+  document.getElementById('btn-reset').style.display = '';
+  document.getElementById('topbar-meta').textContent =
+    `${RESULTS.length} products · ${new Date().toLocaleDateString('en-GB')}`;
 
-  renderReadiness();
+  buildPriorityList();
+  updateKPIs();
+  renderPlan();
+  initShortageSelect();
   renderShortage();
-  renderWarning();
-  renderRC();
-  renderTiaduf();
+  renderShared();
+  renderPO();
   buildSummary();
-  // Pass raw rows to raw data tab
-  initRawData(window._lastRawRows || []);
 }
 
-// ════════════════════════════════════
-// RENDERERS
-// ════════════════════════════════════
-function showTab(id, btn) {
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('tab-' + id).classList.add('active');
-  btn.classList.add('active');
+function updateKPIs() {
+  const blocked = RESULTS.filter(r=>r.status==='BLOCKED').length;
+  const partial = RESULTS.filter(r=>r.status==='PARTIAL').length;
+  const full    = RESULTS.filter(r=>r.status==='FULL').length;
+  const nobo    = RESULTS.filter(r=>r.status==='NO BOM').length;
+  const actQty  = Math.round(RESULTS.reduce((s,r)=>s+r.active_qty,0));
+  const planQty = Math.round(RESULTS.reduce((s,r)=>s+r.planned_qty,0));
+  const buildNow= Math.round(RESULTS.reduce((s,r)=>s+r.buildNow,0));
+  document.getElementById('kpi-strip').innerHTML = [
+    ['Products',    RESULTS.length,  ''],
+    ['Blocked',     blocked,         'var(--red)'],
+    ['Partial',     partial,         'var(--orange)'],
+    ['Full',        full,            'var(--green)'],
+    ['Active Qty',  actQty,          'var(--accent)'],
+    ['Planned Qty', planQty,         'var(--sim)'],
+    ['Build Now',   buildNow,        buildNow > 0 ? 'var(--green)' : 'var(--red)'],
+  ].map(([l,v,c]) =>
+    `<div class="kpi"><div class="kpi-l">${l}</div><div class="kpi-v" style="color:${c||'var(--text)'}">${v}</div></div>`
+  ).join('');
 }
 
-function rsort(col) {
-  if (rSortCol===col) rSortDir*=-1; else { rSortCol=col; rSortDir=1; }
-  renderReadiness();
+// ══════════════════════════════════════
+// PRIORITY LIST (drag to reorder)
+// ══════════════════════════════════════
+function buildPriorityList() {
+  const list = document.getElementById('priority-list');
+  list.innerHTML = PRIORITY.map((prod, i) => {
+    const desc = (PROD_DESC[prod] || '').substring(0, 50);
+    const flag = FLAGS[prod] || 'normal';
+    return `<div class="pri-item" draggable="true" data-prod="${prod}"
+      ondragstart="dragStart(event)" ondragover="dragOver(event)"
+      ondrop="dropItem(event)" ondragleave="dragLeave(event)" ondragend="dragEnd(event)">
+      <span class="pri-rank">${i+1}</span>
+      <span class="pri-prod">${prod}</span>
+      <span class="pri-desc" title="${desc}">${desc}</span>
+      <div class="pri-flag">
+        <button class="f-crit ${flag==='critical'?'active':''}" onclick="setFlag('${prod}','critical',this)">🔴</button>
+        <button class="f-norm ${flag==='normal'?'active':''}" onclick="setFlag('${prod}','normal',this)">🔵</button>
+        <button class="f-low ${flag==='low'?'active':''}" onclick="setFlag('${prod}','low',this)">🟡</button>
+      </div>
+    </div>`;
+  }).join('');
 }
 
-const ST_BADGE = { 'FULLY BLOCKED':'b-blocked','AT RISK':'b-risk','CLEAR':'b-clear' };
+function setFlag(prod, flag, btn) {
+  FLAGS[prod] = flag;
+  buildPriorityList();
+}
 
-// Storage for user remarks keyed by product TOP
-const USER_REMARKS = {};
+let dragSrc = null;
+function dragStart(e) {
+  dragSrc = e.currentTarget;
+  e.currentTarget.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+}
+function dragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drag-over');
+}
+function dragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
+function dragEnd(e)   { e.currentTarget.classList.remove('dragging'); }
+function dropItem(e) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  if (!dragSrc || dragSrc === e.currentTarget) return;
+  const srcProd  = dragSrc.dataset.prod;
+  const destProd = e.currentTarget.dataset.prod;
+  const si = PRIORITY.indexOf(srcProd);
+  const di = PRIORITY.indexOf(destProd);
+  if (si < 0 || di < 0) return;
+  PRIORITY.splice(si, 1);
+  PRIORITY.splice(di, 0, srcProd);
+  buildPriorityList();
+}
 
-function renderReadiness() {
-  const srch = document.getElementById('r-search').value.toLowerCase();
-  const flt  = document.getElementById('r-status').value;
-  let rows = PRODUCTS.filter(p => {
-    if (flt!=='all' && p.status!==flt) return false;
-    if (srch && ![p.top,p.top_desc].join(' ').toLowerCase().includes(srch)) return false;
+// ══════════════════════════════════════
+// BUILD PLAN TABLE
+// ══════════════════════════════════════
+let planFilter = 'all';
+function psort(col) {
+  if (planSortCol===col) planSortDir*=-1; else { planSortCol=col; planSortDir=1; }
+  renderPlan();
+}
+
+function renderPlan() {
+  const srch  = document.getElementById('plan-search').value.toLowerCase();
+  const flt   = document.getElementById('plan-filter').value;
+  const ttype = document.getElementById('plan-type').value;
+  let rows = RESULTS.filter(r => {
+    if (flt !== 'all' && r.status !== flt) return false;
+    if (ttype === 'active'  && r.active_qty  === 0) return false;
+    if (ttype === 'planned' && r.planned_qty === 0) return false;
+    if (srch && ![r.prod, r.desc].join(' ').toLowerCase().includes(srch)) return false;
     return true;
+  }).slice().sort((a,b) => {
+    let va = a[planSortCol], vb = b[planSortCol];
+    if (planSortCol==='first_due') { va=a.first_due?.getTime()||9e15; vb=b.first_due?.getTime()||9e15; }
+    if (planSortCol==='flag') {
+      const fo = {critical:0,normal:1,low:2};
+      va=fo[a.flag||'normal']; vb=fo[b.flag||'normal'];
+    }
+    if (typeof va==='string') return planSortDir*va.localeCompare(vb);
+    return planSortDir*((va||0)-(vb||0));
   });
-  rows.sort((a,b) => {
-    let va=a[rSortCol], vb=b[rSortCol];
-    if (typeof va==='string') return rSortDir*va.localeCompare(vb);
-    return rSortDir*((va||0)-(vb||0));
-  });
-  const progColor = pct => pct===100?'var(--green)':pct>=50?'var(--orange)':'var(--red)';
-  document.getElementById('r-body').innerHTML = rows.map(p => {
-    const dc  = p.days_away < 0 ? 'var(--red)' : p.days_away < 14 ? 'var(--orange)' : p.days_away < 30 ? 'var(--sol2)' : 'var(--muted)';
-    const pct = p.pct_short;
-    const wo  = p.has_sim && p.has_active ? `<span class="badge b-sim">A+S</span>` : p.has_sim ? `<span class="badge b-sim">SIM</span>` : `<span class="badge b-act">ACT</span>`;
-    const remark = (USER_REMARKS[p.top]||'').replace(/"/g,'&quot;');
-    return `<tr class="${p.status==='FULLY BLOCKED'?'r-critical':''}" style="cursor:pointer;" title="Click to filter Shortages tab">
-      <td style="color:var(--muted);font-size:.75rem" onclick="selectProductFromReadiness('${p.top}')">${p.rank}</td>
-      <td style="font-weight:700;color:var(--accent2);font-size:.82rem" onclick="selectProductFromReadiness('${p.top}')">${p.top} ${wo}</td>
-      <td onclick="selectProductFromReadiness('${p.top}')"><span class="trunc" title="${p.top_desc}">${p.top_desc}</span></td>
-      <td style="color:var(--muted);font-size:.8rem" onclick="selectProductFromReadiness('${p.top}')">${p.due_str}</td>
-      <td style="text-align:right" onclick="selectProductFromReadiness('${p.top}')">${p.active_qty?Math.round(p.active_qty):'—'}</td>
-      <td style="text-align:right;color:var(--sim)" onclick="selectProductFromReadiness('${p.top}')">${p.sim_qty?Math.round(p.sim_qty):'—'}</td>
-      <td style="text-align:right;font-weight:700" onclick="selectProductFromReadiness('${p.top}')">${Math.round(p.total_qty)}</td>
-      <td style="text-align:right;color:${p.n_short>0?'var(--orange)':'var(--green)'};font-weight:700" onclick="selectProductFromReadiness('${p.top}')">${p.n_short}</td>
-      <td onclick="selectProductFromReadiness('${p.top}')"><div class="prog"><div class="prog-fill" style="width:${pct}%;background:${progColor(100-pct)}"></div></div> <span style="font-size:.75rem;color:${progColor(100-pct)}">${pct}%</span></td>
-      <td onclick="selectProductFromReadiness('${p.top}')">${p.has_e2s?'<span class="badge b-e2s">E2S</span>':'<span style="color:var(--border)">—</span>'}</td>
-      <td onclick="selectProductFromReadiness('${p.top}')">${p.has_nopo?'<span class="badge b-warn">NOPO</span>':'<span style="color:var(--border)">—</span>'}</td>
-      <td style="font-weight:700;color:${dc}" onclick="selectProductFromReadiness('${p.top}')">${p.days_away<9999?p.days_away:'—'}</td>
-      <td onclick="selectProductFromReadiness('${p.top}')"><span class="badge ${ST_BADGE[p.status]}">${p.status}</span></td>
-      <td onclick="event.stopPropagation()">
-        <input type="text" value="${remark}" placeholder="Add note…"
-          data-top="${p.top}"
-          onchange="USER_REMARKS[this.dataset.top]=this.value"
-          style="background:transparent;border:none;border-bottom:1px solid var(--border);
-                 color:var(--text);font-size:.78rem;width:140px;outline:none;padding:2px 4px;"
-          onfocus="this.style.borderBottomColor='var(--accent)'"
-          onblur="this.style.borderBottomColor='var(--border)'"
-        >
+
+  const stBadge = {BLOCKED:'b-blocked',PARTIAL:'b-partial',FULL:'b-full','NO BOM':'b-info'};
+  const flagBadge = {critical:'🔴 Critical',normal:'🔵 Normal',low:'🟡 Low'};
+  const progC = pct => pct>=100?'var(--green)':pct>=50?'var(--orange)':'var(--red)';
+
+  document.getElementById('plan-body').innerHTML = rows.map(r => {
+    const pct = r.pctNow;
+    const dc  = !r.first_due ? 'var(--muted)' : daysDiff(r.first_due)<0 ? 'var(--red)' : daysDiff(r.first_due)<14 ? 'var(--orange)' : 'var(--muted)';
+    return `<tr style="cursor:pointer" onclick="jumpToShortage('${r.prod}')">
+      <td style="color:var(--muted);font-size:.72rem">${r.rank}</td>
+      <td><span style="font-size:.72rem">${flagBadge[r.flag||'normal']}</span></td>
+      <td style="font-weight:700;color:var(--accent2);font-size:.8rem">${r.prod}</td>
+      <td><span class="trunc" title="${r.desc}">${r.desc||'—'}</span></td>
+      <td style="text-align:right;color:var(--accent)">${r.active_qty||'—'}</td>
+      <td style="text-align:right;color:var(--sim)">${r.planned_qty||'—'}</td>
+      <td style="text-align:right;font-weight:700;color:${r.buildNow>0?'var(--green)':'var(--red)'}">${r.buildNow}</td>
+      <td style="text-align:right;color:${r.buildPoDue>=r.total_qty?'var(--green)':'var(--orange)'}">${r.buildPoDue}</td>
+      <td>
+        <div class="prog"><div class="prog-f" style="width:${pct}%;background:${progC(pct)}"></div></div>
+        <span style="font-size:.72rem;color:${progC(pct)};margin-left:4px">${pct}%</span>
       </td>
+      <td style="text-align:right;color:${r.n_blocking>0?'var(--red)':'var(--green)'};font-weight:${r.n_blocking>0?700:400}">${r.n_blocking}</td>
+      <td style="color:${dc};font-size:.78rem">${fd(r.first_due)}</td>
+      <td><span class="badge ${stBadge[r.status]||'b-info'}">${r.status}</span></td>
     </tr>`;
   }).join('');
-  addColumnFilters('tbl-readiness');
+  addColFilters('tbl-plan');
 }
 
-function selectProductFromReadiness(top) {
-  const sel = document.getElementById('s-prod');
-  for (let i = 0; i < sel.options.length; i++) {
-    if (sel.options[i].value === top) { sel.selectedIndex = i; break; }
+function jumpToShortage(prod) {
+  const sel = document.getElementById('sh-prod');
+  for (let i=0; i<sel.options.length; i++) {
+    if (sel.options[i].value===prod) { sel.selectedIndex=i; break; }
   }
   renderShortage();
-  const shortBtn = document.querySelector('.tab-btn[onclick*=\'shortage\']');
-  if (shortBtn) showTab('shortage', shortBtn);
-  toast('Shortages filtered for ' + top);
+  document.querySelector('.tab-btn[onclick*="shortage"]').click();
+  toast('Shortages for ' + prod);
 }
 
-
-function filterProdSelect() {
-  const srch = document.getElementById('s-prod-search').value.toLowerCase();
-  const sel  = document.getElementById('s-prod');
-  const allProds = PRODUCTS.filter(p => p.n_short > 0);
-  const filtered = srch ? allProds.filter(p => [p.top,p.top_desc].join(' ').toLowerCase().includes(srch)) : allProds;
-  sel.innerHTML = filtered.map(p =>
-    `<option value="${p.top}">${p.top} — ${p.top_desc.substring(0,40)} (${p.n_short} short)</option>`
+// ══════════════════════════════════════
+// SHORTAGES
+// ══════════════════════════════════════
+function initShortageSelect() {
+  const sel = document.getElementById('sh-prod');
+  sel.innerHTML = RESULTS.filter(r=>r.n_blocking>0).map(r =>
+    `<option value="${r.prod}">${r.prod} — ${r.desc.substring(0,40)} (${r.n_blocking} blocking)</option>`
   ).join('');
-  renderShortage();
 }
 
 function renderShortage() {
-  const prod  = PRODUCTS.find(p=>p.top===document.getElementById('s-prod').value);
+  const prod = RESULTS.find(r => r.prod === document.getElementById('sh-prod').value);
   if (!prod) return;
-  const srch  = document.getElementById('s-search').value.toLowerCase();
-  const typeF = document.getElementById('s-type').value;
-  const woF   = document.getElementById('s-wo').value;
+  const srch = document.getElementById('sh-search').value.toLowerCase();
+  const comps = prod.compAnalysis.filter(c =>
+    c.shortNow > 0 && (!srch || [c.comp,c.desc,c.supplier||''].join(' ').toLowerCase().includes(srch))
+  );
+  document.getElementById('sh-body').innerHTML = comps.map(c => {
+    const poCover   = Math.round(Math.min(c.poAll, c.shortNow));
+    const remaining = Math.max(0, Math.round(c.shortNow - c.poAll));
+    const resFg = !c.resDate ? 'var(--red)' : daysDiff(c.resDate)<0?'var(--red)':daysDiff(c.resDate)<=30?'var(--orange)':'var(--green)';
+    const poLines = c.pos.map(p =>
+      `<span style="font-size:.72rem;color:var(--muted)">${p.order}: ${Math.round(p.qty)} by ${fd(p.eta)} (${p.supplier})</span>`
+    ).join('<br>');
+    const supp = c.supplier || PO_BY_ITEM[c.comp]?.[0]?.supplier || COMP_SUPPLIER[c.comp] || '—';
+    return `<tr>
+      <td style="font-family:monospace;font-weight:700;color:var(--accent2);font-size:.78rem">${c.comp}</td>
+      <td><span class="trunc" title="${c.desc}">${c.desc||'—'}</span></td>
+      <td style="text-align:right">${c.qpa}</td>
+      <td style="text-align:right;font-weight:700">${c.need}</td>
+      <td style="text-align:right">${Math.round(c.onHand)}</td>
+      <td style="text-align:right;font-weight:700;color:var(--red)">${Math.round(c.shortNow)}</td>
+      <td style="text-align:right;color:${poCover>0?'var(--green)':'var(--muted)'}">${poCover||'—'}</td>
+      <td style="text-align:right;font-weight:700;color:${remaining>0?'var(--red)':'var(--green)'}">${remaining||'✓'}</td>
+      <td style="font-weight:700;color:${resFg}">${c.resDate?fd(c.resDate):'Unresolved'}</td>
+      <td style="font-size:.75rem"><span class="trunc" title="${supp}">${supp}</span></td>
+      <td style="font-size:.72rem;color:var(--muted)">${poLines||'<span style="color:var(--red)">No open POs</span>'}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="11" style="padding:20px;text-align:center;color:var(--green)">✓ No shortages for this product</td></tr>`;
+  addColFilters('tbl-shortage');
+}
 
-  // Group all shortage rows by item, summing need/lim per WO,
-  // taking short once (ERP already totals it — same value repeats across WO rows)
-  const itemMap = {};
-  prod.all_rows.forEach(c => {
-    if (!isShort(c)) return;
-    if (typeF!=='all' && c.type!==typeF) return;
-    if (woF==='active' && c.is_sim) return;
-    if (woF==='sim' && !c.is_sim) return;
-    if (srch && ![c.item,c.item_desc,c.supplier,c.tiaduf].join(' ').toLowerCase().includes(srch)) return;
-    if (!itemMap[c.item]) {
-      itemMap[c.item] = {
-        ...c,
-        need_total:   0,
-        lim_total:    0,
-        short_val:    c.short,   // same across all rows — take once
-        avail_stock:  c.ok_flag ? 0 : (c.avail === 999999 ? 0 : c.avail),
-        wo_lines:     [],        // individual WO supply lines
-        po_lines:     [],        // all PO supply lines (for resolution date)
-      };
-    }
-    itemMap[c.item].need_total += c.need;
-    itemMap[c.item].lim_total  += c.lim;
-    // Collect supply line per WO (deduplicated by wo_id)
-    if (c.wo_id && !itemMap[c.item].wo_lines.find(l => l.wo_id===c.wo_id)) {
-      itemMap[c.item].wo_lines.push({
-        wo_id:      c.wo_id,
-        is_sim:     c.is_sim,
-        need:       c.need,
-        supply_qty: c.supply_qty,
-        due_supply: c.due_supply,
-        supplier:   c.supplier,
-      });
-    }
-    // Collect unique PO lines by order_id for resolution date calculation
-    if (c.order_id && c.supply_qty > 0 && c.due_supply &&
-        !itemMap[c.item].po_lines.find(l => l.order_id===c.order_id)) {
-      itemMap[c.item].po_lines.push({
-        order_id:   c.order_id,
-        supply_qty: c.supply_qty,
-        due_supply: c.due_supply,
-      });
-    }
+// ══════════════════════════════════════
+// SHARED COMPONENTS
+// ══════════════════════════════════════
+function renderShared() {
+  const srch = document.getElementById('sc-search').value.toLowerCase();
+  // Find components used by multiple products that are in shortage
+  const compMap = {};
+  RESULTS.forEach(r => {
+    r.compAnalysis.forEach(c => {
+      if (c.shortNow <= 0) return;
+      if (!compMap[c.comp]) compMap[c.comp] = { comp: c.comp, desc: c.desc, onHand: c.onHand, products: [] };
+      compMap[c.comp].products.push({ prod: r.prod, need: c.need, shortNow: c.shortNow, qpa: c.qpa });
+    });
   });
+  const shared = Object.values(compMap).filter(c =>
+    c.products.length > 1 && (!srch || [c.comp, c.desc].join(' ').toLowerCase().includes(srch))
+  ).sort((a,b) => b.products.length - a.products.length);
 
-  const comps = Object.values(itemMap);
-  document.getElementById('s-count').textContent = `${comps.length} component${comps.length!==1?'s':''}`;
-
-  // ── Resolution date: when cumulative PO supply + avail stock >= total shortage ──
-  function calcResolutionDate(comp) {
-    if (!comp.short_val || comp.short_val <= 0) return { date: null, status: 'ok' };
-    const lines = comp.po_lines.slice().sort((a,b) => a.due_supply - b.due_supply);
-    if (lines.length === 0) return { date: null, status: 'unresolved' };
-    let cumulative = comp.avail_stock || 0;
-    for (const line of lines) {
-      cumulative += line.supply_qty;
-      if (cumulative >= comp.short_val) {
-        return { date: line.due_supply, status: 'resolved' };
-      }
-    }
-    return {
-      date: lines[lines.length - 1].due_supply,
-      status: 'partial',
-      covered: Math.round(cumulative),
-      needed:  Math.round(comp.short_val)
-    };
-  }
-
-  document.getElementById('s-body').innerHTML = comps.map(c => {
-    const rc   = rootCause(c);
-    const sols = buildSolutions(c);
-    const res  = calcResolutionDate(c);
-    // Resolution date cell
-    let resCell = '';
-    if (res.status === 'resolved') {
-      const daysToRes = Math.ceil((res.date - TODAY) / 86400000);
-      const resFg = daysToRes < 0 ? 'var(--red)' : daysToRes <= 30 ? 'var(--orange)' : 'var(--green)';
-      resCell = `<span style="font-weight:700;color:${resFg}">${fd(res.date)}</span><br><span style="font-size:.7rem;color:var(--muted)">${daysToRes < 0 ? Math.abs(daysToRes)+'d ago' : 'in '+daysToRes+'d'}</span>`;
-    } else if (res.status === 'partial') {
-      resCell = `<span style="color:var(--orange);font-weight:700">Partial by ${fd(res.date)}</span><br><span style="font-size:.7rem;color:var(--muted)">${res.covered} / ${res.needed} covered</span>`;
-    } else {
-      resCell = `<span style="color:var(--red);font-weight:700">Unresolved</span><br><span style="font-size:.7rem;color:var(--muted)">No PO coverage</span>`;
-    }
-    // Build supply schedule summary across WOs
-    const schedLines = c.wo_lines.map(l => {
-      const simTag = l.is_sim ? '<span class="badge b-sim" style="font-size:.65rem">SIM</span> ' : '';
-      const late = l.due_supply && c.due_top && l.due_supply > c.due_top;
-      return `${simTag}<span style="font-size:.75rem;color:${late?'var(--orange)':'var(--muted)'}">${l.wo_id}: need ${Math.round(l.need)} | supply ${l.supply_qty?Math.round(l.supply_qty):'—'} by ${fd(l.due_supply)}</span>`;
-    }).join('<br>');
-    const hasLate = c.wo_lines.some(l => l.due_supply && c.due_top && l.due_supply > c.due_top);
-    const woBadge = c.is_sim ? '<span class="badge b-sim">SIM</span>' : '<span class="badge b-act">ACT</span>';
-    return `<tr class="${c.is_sim?'r-sim':''}">
-      <td>${woBadge}</td>
-      <td style="font-family:monospace;font-weight:700;font-size:.8rem;color:var(--accent2)">${c.item}</td>
-      <td><span class="trunc" title="${c.item_desc}">${c.item_desc}</span></td>
-      <td style="text-align:center">${c.type}</td>
-      <td style="text-align:right;font-weight:700;color:var(--red)">${Math.round(c.need_total)}</td>
-      <td style="text-align:right;font-weight:700;color:${c.short_val>0?'var(--red)':'var(--orange)'}">${c.short_val?Math.round(c.short_val):'—'}</td>
-      <td style="text-align:right;color:var(--sol2)">${c.lim_total?Math.round(c.lim_total):'—'}</td>
-      <td style="font-size:.75rem;color:var(--muted)">${c.remarks||'—'}</td>
-      <td style="font-size:.78rem"><span class="trunc" title="${c.supplier}">${c.supplier||'—'}</span></td>
-      <td style="text-align:right">${c.lt?Math.round(c.lt):'—'}</td>
-      <td style="font-size:.75rem;color:${hasLate?'var(--orange)':'var(--muted)'}">${schedLines||'—'}</td>
-      <td style="vertical-align:middle">${resCell}</td>
-      <td class="sol-cell">${sols.altPart||'<span class="sol-empty">—</span>'}</td>
-      <td class="sol-cell">${sols.altSup||'<span class="sol-empty">—</span>'}</td>
-      <td class="sol-cell sol2-cell">${sols.split||'<span class="sol-empty">—</span>'}</td>
-      <td class="sol-cell sol3-cell">${sols.realloc||'<span class="sol-empty">—</span>'}</td>
-      <td class="sol-cell sol2-cell">${sols.partial||'<span class="sol-empty">—</span>'}</td>
+  document.getElementById('sc-count').textContent = `${shared.length} shared shortage components`;
+  document.getElementById('sc-body').innerHTML = shared.map(c => {
+    const totalNeed = Math.round(c.products.reduce((s,p)=>s+p.need,0));
+    const totalShort= Math.round(c.products.reduce((s,p)=>s+p.shortNow,0));
+    const usedBy = c.products.map(p =>
+      `<span style="color:var(--accent2);font-size:.72rem">${p.prod}</span> <span style="color:var(--muted);font-size:.7rem">(need ${p.need}, short ${Math.round(p.shortNow)})</span>`
+    ).join(' &nbsp;|&nbsp; ');
+    return `<tr>
+      <td style="font-family:monospace;font-weight:700;color:var(--orange);font-size:.78rem">${c.comp}</td>
+      <td><span class="trunc" title="${c.desc}">${c.desc||'—'}</span></td>
+      <td style="text-align:right">${Math.round(c.onHand)}</td>
+      <td style="text-align:right;font-weight:700">${totalNeed}</td>
+      <td style="text-align:right;font-weight:700;color:var(--red)">${totalShort}</td>
+      <td style="text-align:right;font-weight:700;color:var(--orange)">${c.products.length}</td>
+      <td style="font-size:.75rem">${usedBy}</td>
     </tr>`;
-  }).join('');
-  addColumnFilters('tbl-shortage');
+  }).join('') || `<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--muted)">No shared shortage components found.</td></tr>`;
+  addColFilters('tbl-shared');
 }
 
-function renderWarning() {
-  const horizonDays = parseInt(document.getElementById('wk-range').value) * 7;
-  const srch = document.getElementById('w-search').value.toLowerCase();
-  const rows = ALL_SHORTS.filter(c => {
-    const d = c.days_away;
-    if (d <= 0 || d > horizonDays) return false;
-    if (srch && ![c.item,c.item_desc,c.supplier,c.top].join(' ').toLowerCase().includes(srch)) return false;
-    return true;
+// ══════════════════════════════════════
+// OPEN POs
+// ══════════════════════════════════════
+function renderPO() {
+  const srch = document.getElementById('po-search').value.toLowerCase();
+  // Flatten all PO lines
+  const poFlat = [];
+  Object.entries(PO_BY_ITEM).forEach(([item, pos]) => {
+    pos.forEach(p => {
+      if (srch && ![item, p.supplier, p.order, p.desc||''].join(' ').toLowerCase().includes(srch)) return;
+      // Find which products this item unblocks
+      const unblocks = RESULTS.filter(r => r.blocking.some(c => c.comp === item)).map(r => r.prod);
+      poFlat.push({ item, ...p, unblocks, desc: p.desc || COMP_DESC[item] || '' });
+    });
   });
-  const riskBadge = d => d<=7?'<span class="badge b-blocked">HIGH</span>':d<=14?'<span class="badge b-risk">MED</span>':'<span class="badge b-info">LOW</span>';
-  document.getElementById('w-body').innerHTML = rows.length ? rows.map(c => {
-    const sols = buildSolutions(c);
-    const wb = c.is_sim ? '<span class="badge b-sim">SIM</span>' : '<span class="badge b-act">ACT</span>';
-    return `<tr class="${c.is_sim?'r-sim':''}">
-      <td>${wb}</td>
-      <td style="font-family:monospace;font-weight:700;font-size:.8rem;color:var(--accent2)">${c.item}</td>
-      <td><span class="trunc" title="${c.item_desc}">${c.item_desc}</span></td>
-      <td style="font-size:.78rem;color:var(--accent2)">${c.top}</td>
-      <td style="font-size:.78rem;color:var(--muted)">${fd(c.due_top)}</td>
-      <td style="font-weight:700;color:${c.days_away<=7?'var(--red)':c.days_away<=14?'var(--orange)':'var(--sol2)'}">${c.days_away}</td>
-      <td style="text-align:right;font-weight:700;color:var(--orange)">${c.short?Math.round(c.short):'—'}</td>
-      <td>${riskBadge(c.days_away)}</td>
-      <td style="font-size:.78rem"><span class="trunc" title="${c.supplier}">${c.supplier||'—'}</span></td>
-      <td class="sol-cell">${sols.altSup||'<span class="sol-empty">—</span>'}</td>
-      <td class="sol-cell sol2-cell">${sols.partial||'<span class="sol-empty">—</span>'}</td>
+  poFlat.sort((a,b) => (a.eta||new Date(9999,0,1)) - (b.eta||new Date(9999,0,1)));
+  document.getElementById('po-count').textContent = `${poFlat.length} PO lines`;
+  const today = new Date(); today.setHours(0,0,0,0);
+  document.getElementById('po-body').innerHTML = poFlat.map(p => {
+    const days = daysDiff(p.eta);
+    const dc   = days < 0 ? 'var(--red)' : days <= 14 ? 'var(--orange)' : days <= 30 ? 'var(--yellow)' : 'var(--green)';
+    const ub   = p.unblocks.length > 0
+      ? p.unblocks.map(u=>`<span style="color:var(--accent2);font-size:.72rem">${u}</span>`).join(' ')
+      : '<span style="color:var(--muted);font-size:.72rem">—</span>';
+    return `<tr>
+      <td style="font-family:monospace;font-weight:700;color:var(--accent2);font-size:.78rem">${p.item}</td>
+      <td><span class="trunc" title="${p.desc}">${p.desc||'—'}</span></td>
+      <td style="font-size:.75rem;color:var(--muted)">${p.order}</td>
+      <td style="text-align:right;font-weight:700">${Math.round(p.qty)}</td>
+      <td style="color:${dc};font-weight:700">${fd(p.eta)}</td>
+      <td style="text-align:right;font-weight:700;color:${dc}">${days<9999?days+'d':'—'}</td>
+      <td style="font-size:.75rem"><span class="trunc" title="${p.supplier}">${p.supplier||'—'}</span></td>
+      <td>${ub}</td>
     </tr>`;
-  }).join('') : `<tr><td colspan="11" style="padding:24px;text-align:center;color:var(--muted)">No early warnings in selected horizon.</td></tr>`;
-  addColumnFilters('tbl-warning');
+  }).join('') || `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--muted)">No open POs found.</td></tr>`;
+  addColFilters('tbl-po');
 }
 
-function renderRC() {
-  const flt  = document.getElementById('rc-filter').value;
-  const srch = document.getElementById('rc-search').value.toLowerCase();
-  let rows = ALL_SHORTS.filter(c => {
-    if (flt!=='all' && c.rc!==flt) return false;
-    if (srch && ![c.item,c.item_desc,c.supplier,c.top].join(' ').toLowerCase().includes(srch)) return false;
-    return true;
-  });
-  const rcFg = rc => rc.includes('E2S')?'var(--red)':rc.includes('No PO')?'var(--orange)':rc.includes('late')?'var(--sol2)':'var(--sol3)';
-  const late = c => c.due_supply && c.due_top && c.due_supply > c.due_top;
-  document.getElementById('rc-body').innerHTML = rows.map((c,i) => {
-    const sols = buildSolutions(c);
-    const wb = c.is_sim ? '<span class="badge b-sim">SIM</span>' : '<span class="badge b-act">ACT</span>';
-    return `<tr class="${c.is_sim?'r-sim':''}">
-      <td>${wb}</td>
-      <td style="font-family:monospace;font-weight:700;font-size:.8rem;color:var(--accent2)">${c.item}</td>
-      <td><span class="trunc" title="${c.item_desc}">${c.item_desc}</span></td>
-      <td style="text-align:center">${c.type}</td>
-      <td style="font-size:.78rem;color:var(--accent2)">${c.top}</td>
-      <td style="font-size:.78rem"><span class="trunc" title="${c.supplier}">${c.supplier||'—'}</span></td>
-      <td style="text-align:right">${c.lt?Math.round(c.lt):'—'}</td>
-      <td style="font-size:.78rem;color:var(--muted)">${fd(c.due_top)}</td>
-      <td style="font-size:.78rem;color:${late(c)?'var(--orange)':'var(--muted)'}">${fd(c.due_supply)}</td>
-      <td style="font-weight:700;color:${rcFg(c.rc)};font-size:.78rem">${c.rc}</td>
-      <td class="sol-cell">${sols.altPart||'<span class="sol-empty">—</span>'}</td>
-      <td class="sol-cell">${sols.altSup||'<span class="sol-empty">—</span>'}</td>
-      <td class="sol-cell sol3-cell">${sols.realloc||'<span class="sol-empty">—</span>'}</td>
-    </tr>`;
-  }).join('');
-  addColumnFilters('tbl-rootcause');
-}
-
-function renderTiaduf() {
-  const srch = document.getElementById('t-search').value.toLowerCase();
-  const rows = ALL_SHORTS.filter(c => c.tiaduf && c.tiaduf.trim().length > 2 &&
-    (!srch || [c.item,c.item_desc,c.top,c.tiaduf].join(' ').toLowerCase().includes(srch)));
-  document.getElementById('t-body').innerHTML = rows.length ? rows.map(c => {
-    const sols = buildSolutions(c);
-    const wb = c.is_sim ? '<span class="badge b-sim">SIM</span>' : '<span class="badge b-act">ACT</span>';
-    return `<tr class="${c.is_sim?'r-sim':''}">
-      <td>${wb}</td>
-      <td style="font-family:monospace;font-weight:700;font-size:.8rem;color:var(--accent2)">${c.item}</td>
-      <td><span class="trunc" title="${c.item_desc}">${c.item_desc}</span></td>
-      <td style="text-align:center">${c.type}</td>
-      <td style="font-size:.78rem;color:var(--accent2)">${c.top}</td>
-      <td style="font-size:.78rem;color:var(--muted)">${fd(c.due_top)}</td>
-      <td style="text-align:right;font-weight:700;color:var(--orange)">${c.short?Math.round(c.short):'—'}</td>
-      <td style="font-size:.75rem;color:var(--sol2)">${c.tiaduf}</td>
-      <td style="font-size:.78rem"><span class="trunc" title="${c.supplier}">${c.supplier||'—'}</span></td>
-      <td class="sol-cell sol3-cell">${sols.realloc||'<span class="sol-empty">—</span>'}</td>
-      <td class="sol-cell">${sols.altPart||'<span class="sol-empty">—</span>'}</td>
-      <td class="sol-cell sol2-cell">${sols.partial||'<span class="sol-empty">—</span>'}</td>
-    </tr>`;
-  }).join('') : `<tr><td colspan="12" style="padding:24px;text-align:center;color:var(--muted)">No TIADUF rows found.</td></tr>`;
-  addColumnFilters('tbl-tiaduf');
-}
-
-// ════════════════════════════════════
-// EXPEDITE EMAIL
-// ════════════════════════════════════
-function buildExpSelect() {
-  const eligible = ALL_SHORTS.filter(c => c.is_sim === false);
-  document.getElementById('exp-select').innerHTML = eligible.length
-    ? eligible.map(c => `<option value="${c.top}|${c.item}">${c.item} — ${c.item_desc.substring(0,38)} (${c.top})</option>`).join('')
-    : '<option>No active shortage components found</option>';
-  buildEmail();
-}
-
-function buildEmail() {
-  const val  = document.getElementById('exp-select').value;
-  if (!val || !val.includes('|')) return;
-  const [top, item] = val.split('|');
-  const c    = ALL_SHORTS.find(x => x.top===top && x.item===item);
-  const prod = PRODUCTS.find(p => p.top===top);
-  if (!c || !prod) return;
-  const name  = document.getElementById('exp-name').value  || '[Your Name]';
-  const tone  = document.getElementById('exp-tone').value;
-  const notes = document.getElementById('exp-notes').value;
-  const pre   = tone==='critical'?'CRITICAL ESCALATION':tone==='urgent'?'URGENT EXPEDITE REQUEST':'Expedite Request';
-  document.getElementById('exp-subject').value = `${pre} — ${item} / ${top} — Required by ${fd(c.due_top)}`;
-  let urgLine = '';
-  if (tone==='urgent')   urgLine = '\nThis is a time-sensitive request. Production is at risk. Please confirm an accelerated delivery date within 24 hours.\n';
-  if (tone==='critical') urgLine = '\nWARNING: Imminent production line stoppage. Critical escalation — response required today.\n';
-  const sols = buildSolutions(c);
-  const solBlock = [
-    sols.altPart   ? `  Alt Part       : ${sols.altPart}` : '',
-    sols.altSup    ? `  Alt Supplier   : ${sols.altSup}` : '',
-    sols.split     ? `  Split Order    : ${sols.split}` : '',
-    sols.partial   ? `  Partial Build  : ${sols.partial}` : '',
-  ].filter(Boolean).join('\n');
-  document.getElementById('exp-output').textContent =
-`Dear ${c.supplier||'[Supplier]'} Team,
-
-I am writing to formally request expedited delivery for the following shortage:
-
-  Item Number      : ${item}
-  Description      : ${c.item_desc}
-  Component Type   : ${c.type}
-  Qty Per Assembly : ${c.qty_per}
-  Total Shortage   : ${Math.round(c.short)}
-  Lead Time        : ${Math.round(c.lt)} days
-
-  Top Product      : ${top}
-  Product Desc     : ${prod.top_desc.substring(0,80)}
-  Production Due   : ${fd(c.due_top)}
-  Product Status   : ${prod.status}
-
-  Current supply schedule:
-  ${c.due_supply ? `PO due ${fd(c.due_supply)} for ${Math.round(c.supply_qty)} units` : 'No confirmed supply'}
-  Root Cause       : ${c.rc}
-${urgLine}
-Options under consideration:
-${solBlock||'  Under review — please advise'}
-
-Please confirm:
-  1. Earliest possible delivery date
-  2. Current production / shipment status
-  3. Name and contact of responsible account manager
-${notes?'\nAdditional context:\n'+notes+'\n':''}
-Your prompt response is critical to our production schedule.
-
-Best regards,
-${name}`;
-}
-
-function copyExp(mode) {
-  const subj = document.getElementById('exp-subject').value;
-  const body = document.getElementById('exp-output').textContent;
-  const text = mode==='full' ? `Subject: ${subj}\n\n${body}` : body;
-  writeClip(text); toast('Copied to clipboard ✓');
-}
-
-// ════════════════════════════════════
+// ══════════════════════════════════════
 // EXECUTIVE SUMMARY
-// ════════════════════════════════════
+// ══════════════════════════════════════
 function buildSummary() {
-  if (!PRODUCTS.length) return;
+  if (!RESULTS.length) return;
   const aud    = document.getElementById('sum-aud').value;
   const author = document.getElementById('sum-author').value || 'Supply Chain PM';
-  const blocked = PRODUCTS.filter(p=>p.status==='FULLY BLOCKED');
-  const risk    = PRODUCTS.filter(p=>p.status==='AT RISK');
-  const ok      = PRODUCTS.filter(p=>p.status==='CLEAR');
-  const tot_a   = Math.round(PRODUCTS.reduce((s,p)=>s+p.active_qty,0));
-  const tot_s   = Math.round(PRODUCTS.reduce((s,p)=>s+p.sim_qty,0));
-  const rcC = {};
-  ALL_SHORTS.forEach(c=>{ rcC[c.rc]=(rcC[c.rc]||0)+1; });
-  const topRC = Object.entries(rcC).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k,v])=>`${k} (${v})`).join(', ')||'N/A';
-  const critSups = [...new Set(ALL_SHORTS.filter(c=>c.rc.includes('E2S')||c.rc.includes('No PO')).map(c=>c.supplier).filter(Boolean))].slice(0,4).join(', ')||'N/A';
-  const LINE = '─'.repeat(58);
-
+  const today  = new Date().toLocaleDateString('en-GB');
+  const blocked= RESULTS.filter(r=>r.status==='BLOCKED');
+  const partial= RESULTS.filter(r=>r.status==='PARTIAL');
+  const full   = RESULTS.filter(r=>r.status==='FULL');
+  const actQty = Math.round(RESULTS.reduce((s,r)=>s+r.active_qty,0));
+  const planQty= Math.round(RESULTS.reduce((s,r)=>s+r.planned_qty,0));
+  const buildNow= Math.round(RESULTS.reduce((s,r)=>s+r.buildNow,0));
+  const LINE   = '─'.repeat(60);
   let out = '';
+
   if (aud==='mgmt') {
-    out = `MANUFACTURING READINESS REPORT — SENIOR MANAGEMENT
-Date         : ${TODAY_STR}
-Prepared by  : ${author}
+    out = `MANUFACTURING READINESS — SENIOR MANAGEMENT
+Date        : ${today}
+Prepared by : ${author}
 
-OVERALL STATUS
+OVERVIEW
 ${LINE}
-Active WO units   : ${tot_a}
-Simulation units  : ${tot_s} (planned demand)
-Total combined    : ${tot_a+tot_s}
+Products in plan   : ${RESULTS.length}
+Fully blocked      : ${blocked.length}  (cannot build any units)
+Partial production : ${partial.length}  (can build some units)
+Fully buildable    : ${full.length}
 
-Products — Fully Blocked  : ${blocked.length}
-Products — At Risk        : ${risk.length}
-Products — Clear          : ${ok.length}
+Active order qty   : ${actQty} units
+Planned order qty  : ${planQty} units
+Build now (stock)  : ${buildNow} units
 
-Health Rating : ${blocked.length>3?'CRITICAL':blocked.length>0?'ELEVATED':'STABLE'}
-
-FULLY BLOCKED — IMMEDIATE ACTION REQUIRED
+FULLY BLOCKED PRODUCTS
 ${LINE}
-${blocked.map((p,i)=>`${i+1}. ${p.top} | ${p.top_desc.substring(0,55)} | ${Math.round(p.total_qty)} units | Due: ${p.due_str}`).join('\n')||'None'}
+${blocked.map((r,i)=>
+  `${i+1}. ${r.prod} | ${r.desc.substring(0,55)} | Active: ${r.active_qty} | Blocked by: ${r.n_blocking} component(s)`
+).join('\n')||'None'}
 
-TOP ROOT CAUSES
+PARTIAL PRODUCTION
 ${LINE}
-${topRC}
+${partial.map(r=>
+  `${r.prod} | Build now: ${r.buildNow}/${r.total_qty} (${r.pctNow}%) | With POs: ${r.buildPoDue}`
+).join('\n')||'None'}
 
-CRITICAL SUPPLIERS
+PRIORITY ORDER (current)
 ${LINE}
-${critSups}
+${RESULTS.slice(0,10).map((r,i)=>
+  `${i+1}. ${r.prod} [${(FLAGS[r.prod]||'normal').toUpperCase()}] — ${r.status}`
+).join('\n')}
 
-RECOMMENDED ACTIONS
-${LINE}
-${blocked.length>0?`• Escalate ${blocked.length} fully blocked product(s) — assign emergency sourcing`:''}
-${risk.length>0?`• Expedite ${risk.length} at-risk product(s) via procurement`:''}
-• Demand confirmed delivery dates from: ${critSups}
-• Review all E2S components for alternate sourcing immediately
-
-Generated by CTB Shortage Dashboard`;
+Generated by Manufacturing Readiness Dashboard`;
   } else {
-    out = `MANUFACTURING READINESS BRIEFING — PRODUCTION & PLANNING
-Date         : ${TODAY_STR}
-Prepared by  : ${author}
+    out = `MANUFACTURING READINESS — PRODUCTION & PLANNING
+Date        : ${today}
+Prepared by : ${author}
 
-PRODUCT STATUS OVERVIEW
+PRODUCT STATUS
 ${LINE}
-${PRODUCTS.slice(0,20).map(p=>`${p.top.padEnd(22)} | ${p.status.padEnd(16)} | ${String(Math.round(p.total_qty)).padStart(5)} units | Due: ${p.due_str} | ${p.n_short} shortage items`).join('\n')}${PRODUCTS.length>20?`\n...and ${PRODUCTS.length-20} more products`:''}
+${RESULTS.map(r=>{
+  const pct = r.pctNow;
+  return `${r.prod.padEnd(20)} [${(FLAGS[r.prod]||'normal').toUpperCase().padEnd(8)}] ${r.status.padEnd(10)} Build: ${String(r.buildNow).padStart(5)}/${String(r.total_qty).padStart(5)} (${pct}%) | POs: ${r.buildPoDue} | Due: ${fd(r.first_due)}`;
+}).join('\n')}
 
-FULLY BLOCKED — NO PRODUCTION POSSIBLE
+BLOCKING COMPONENTS — TOP 10
 ${LINE}
-${blocked.map(p=>{
-  const nd=p.short_comps.filter(c=>!c.order_id||c.order_id==='').slice(0,3).map(c=>c.item).join(', ');
-  return `${p.top} (${Math.round(p.total_qty)} units) — blocked by: ${nd||'multiple components'}`;
-}).join('\n')||'None'}
+${RESULTS.flatMap(r=>r.blocking.map(c=>({...c,prod:r.prod}))).slice(0,10).map(c=>
+  `${c.comp} | ${c.desc.substring(0,40)} | Need: ${c.need} | Stock: ${Math.round(c.onHand)} | Short: ${Math.round(c.shortNow)} | ${c.resDate?'Resolves '+fd(c.resDate):'UNRESOLVED'} | Prod: ${c.prod}`
+).join('\n')||'None'}
 
-ROOT CAUSE BREAKDOWN
-${LINE}
-${Object.entries(rcC).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`${k}: ${v} components`).join('\n')||'N/A'}
-
-TOP ITEMS TO EXPEDITE TODAY
-${LINE}
-${ALL_SHORTS.filter(c=>!c.is_sim).slice(0,10).map(c=>`${c.item} | ${c.item_desc.substring(0,40)} | ${c.supplier} | LT: ${Math.round(c.lt)}d | ${c.top} | ${c.rc}`).join('\n')||'None'}
-
-Generated by CTB Shortage Dashboard`;
+Generated by Manufacturing Readiness Dashboard`;
   }
-  document.getElementById('sum-output').textContent = out;
+  document.getElementById('sum-out').textContent = out;
 }
 
 function copySummary() {
-  writeClip(document.getElementById('sum-output').textContent);
-  toast('Report copied ✓');
+  writeClip(document.getElementById('sum-out').textContent);
+  toast('Copied ✓');
 }
 
-// ════════════════════════════════════
+// ══════════════════════════════════════
 // CSV EXPORT
-// ════════════════════════════════════
+// ══════════════════════════════════════
 function csvC(v) {
   const s = String(v===null||v===undefined?'':v);
   return s.includes(',')||s.includes('"')||s.includes('\n') ? '"'+s.replace(/"/g,'""')+'"' : s;
@@ -1464,267 +950,163 @@ function csvC(v) {
 
 function exportCSV(type) {
   let csv = '';
-  if (type==='readiness') {
-    csv = ['Rank','Status','Product','Description','Due Date','Active Qty','Sim Qty','Total Qty','Shortage Items','% At Risk','E2S','NOPO','Days to Due'].map(csvC).join(',')+'\r\n';
-    PRODUCTS.forEach(p => { csv += [p.rank,p.status,p.top,p.top_desc,p.due_str,Math.round(p.active_qty),Math.round(p.sim_qty),Math.round(p.total_qty),p.n_short,p.pct_short+'%',p.has_e2s?'YES':'no',p.has_nopo?'YES':'no',p.days_away<9999?p.days_away:'—'].map(csvC).join(',')+'\r\n'; });
+  const date = new Date().toLocaleDateString('en-GB').replace(/\//g,'-');
+  if (type==='plan') {
+    csv = ['Rank','Flag','Product','Description','Active Qty','Planned Qty','Total Qty','Build Now','Build+POs','% Now','Blocking','First Due','Status'].map(csvC).join(',') + '\r\n';
+    RESULTS.forEach(r => {
+      csv += [r.rank,FLAGS[r.prod]||'normal',r.prod,r.desc,r.active_qty,r.planned_qty,r.total_qty,r.buildNow,r.buildPoDue,r.pctNow+'%',r.n_blocking,fd(r.first_due),r.status].map(csvC).join(',') + '\r\n';
+    });
   } else if (type==='shortage') {
-    const prod = PRODUCTS.find(p=>p.top===document.getElementById('s-prod').value);
+    const prod = RESULTS.find(r=>r.prod===document.getElementById('sh-prod').value);
     if (!prod) return;
-    csv = ['WO Type','Item','Description','Type','Short Qty','LIM','Remarks','Supplier','LT (d)','Supply Due','Days Late','Root Cause','Alt Part','Alt Supplier','Split Order','Reallocate','Partial Build'].map(csvC).join(',')+'\r\n';
-    prod.short_comps.forEach(c => {
-      const sols=buildSolutions(c); const rc=rootCause(c);
-      const late=c.due_supply&&c.due_top&&c.due_supply>c.due_top?Math.ceil((c.due_supply-c.due_top)/86400000):0;
-      csv += [c.is_sim?'SIM':'ACT',c.item,c.item_desc,c.type,c.short?Math.round(c.short):'',c.lim?Math.round(c.lim):'',c.remarks,c.supplier,c.lt?Math.round(c.lt):'',fd(c.due_supply),late?'+'+late+'d':'',rc,sols.altPart,sols.altSup,sols.split,sols.realloc,sols.partial].map(csvC).join(',')+'\r\n';
+    csv = ['Product','Component','Description','QPA','Need Total','On Hand','Short Now','PO Covers','Remaining','Resolved By','Supplier'].map(csvC).join(',') + '\r\n';
+    prod.compAnalysis.filter(c=>c.shortNow>0).forEach(c => {
+      const poCover = Math.round(Math.min(c.poAll, c.shortNow));
+      const rem     = Math.max(0, Math.round(c.shortNow - c.poAll));
+      const supp    = c.supplier || PO_BY_ITEM[c.comp]?.[0]?.supplier || '—';
+      csv += [prod.prod,c.comp,c.desc,c.qpa,c.need,Math.round(c.onHand),Math.round(c.shortNow),poCover,rem,c.resDate?fd(c.resDate):'Unresolved',supp].map(csvC).join(',') + '\r\n';
     });
-  } else if (type==='warning') {
-    const horizonDays = parseInt(document.getElementById('wk-range').value)*7;
-    csv = ['WO Type','Item','Description','Product','Due Date','Days Away','Projected Gap','Risk','Supplier','Alt Supplier','Partial Build'].map(csvC).join(',')+'\r\n';
-    ALL_SHORTS.filter(c=>c.days_away>0&&c.days_away<=horizonDays).forEach(c => {
-      const sols=buildSolutions(c); const risk=c.days_away<=7?'HIGH':c.days_away<=14?'MED':'LOW';
-      csv += [c.is_sim?'SIM':'ACT',c.item,c.item_desc,c.top,fd(c.due_top),c.days_away,c.short?Math.round(c.short):'',risk,c.supplier,sols.altSup,sols.partial].map(csvC).join(',')+'\r\n';
+  } else if (type==='shared') {
+    csv = ['Component','Description','On Hand','Total Need','Total Short','# Products','Used By'].map(csvC).join(',') + '\r\n';
+    const compMap = {};
+    RESULTS.forEach(r => {
+      r.compAnalysis.forEach(c => {
+        if (c.shortNow<=0) return;
+        if (!compMap[c.comp]) compMap[c.comp]={comp:c.comp,desc:c.desc,onHand:c.onHand,products:[]};
+        compMap[c.comp].products.push({prod:r.prod,need:c.need,shortNow:c.shortNow});
+      });
     });
-  } else if (type==='rootcause') {
-    csv = ['WO Type','Item','Description','Type','Product','Supplier','LT (d)','Due Date','Supply Due','Root Cause','Alt Part','Alt Supplier','Reallocate'].map(csvC).join(',')+'\r\n';
-    ALL_SHORTS.forEach(c => {
-      const sols=buildSolutions(c); const late=c.due_supply&&c.due_top&&c.due_supply>c.due_top;
-      csv += [c.is_sim?'SIM':'ACT',c.item,c.item_desc,c.type,c.top,c.supplier,c.lt?Math.round(c.lt):'',fd(c.due_top),fd(c.due_supply),c.rc,sols.altPart,sols.altSup,sols.realloc].map(csvC).join(',')+'\r\n';
+    Object.values(compMap).filter(c=>c.products.length>1).forEach(c => {
+      const totalNeed  = Math.round(c.products.reduce((s,p)=>s+p.need,0));
+      const totalShort = Math.round(c.products.reduce((s,p)=>s+p.shortNow,0));
+      const usedBy = c.products.map(p=>`${p.prod}(${p.need})`).join(' | ');
+      csv += [c.comp,c.desc,Math.round(c.onHand),totalNeed,totalShort,c.products.length,usedBy].map(csvC).join(',') + '\r\n';
     });
-  } else if (type==='tiaduf') {
-    csv = ['WO Type','Item','Description','Type','Product','Due Date','Short Qty','TIADUF Note','Supplier','Reallocate','Alt Part','Partial Build'].map(csvC).join(',')+'\r\n';
-    ALL_SHORTS.filter(c=>c.tiaduf&&c.tiaduf.trim().length>2).forEach(c => {
-      const sols=buildSolutions(c);
-      csv += [c.is_sim?'SIM':'ACT',c.item,c.item_desc,c.type,c.top,fd(c.due_top),c.short?Math.round(c.short):'',c.tiaduf,c.supplier,sols.realloc,sols.altPart,sols.partial].map(csvC).join(',')+'\r\n';
+  } else if (type==='po') {
+    csv = ['Item','Description','Order','Back Order','ETA','Days Away','Supplier','Unblocks'].map(csvC).join(',') + '\r\n';
+    Object.entries(PO_BY_ITEM).forEach(([item,pos]) => {
+      pos.forEach(p => {
+        const unblocks = RESULTS.filter(r=>r.blocking.some(c=>c.comp===item)).map(r=>r.prod).join(' | ');
+        const days = daysDiff(p.eta);
+        csv += [item,p.desc||COMP_DESC[item]||'',p.order,Math.round(p.qty),fd(p.eta),days<9999?days:'',p.supplier,unblocks].map(csvC).join(',') + '\r\n';
+      });
     });
-  } else if (type==='rawdata') {
-    if (!RAW_HEADERS.length) return;
-    csv = RAW_HEADERS.map(csvC).join(',')+'\r\n';
-    RAW_ROWS.forEach(r => { csv += RAW_HEADERS.map((_,i) => csvC(r[i]===null?'':r[i])).join(',')+'\r\n'; });
-  } else if (type==='bom') {
-    if (!BOM_HEADERS.length) return;
-    csv = BOM_HEADERS.map(csvC).join(',')+'\r\n';
-    BOM_ROWS.forEach(r => { csv += BOM_HEADERS.map((_,i) => csvC(r[i]===null?'':r[i])).join(',')+'\r\n'; });
   }
-
-  const fname = `CTB_${type}_${TODAY_STR.replace(/\//g,'-')}.csv`;
+  const fname = `mfg_${type}_${date}.csv`;
   try {
     const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href=url; a.download=fname; document.body.appendChild(a); a.click();
     document.body.removeChild(a); setTimeout(()=>URL.revokeObjectURL(url),1500);
-  } catch(e) {
-    // iPad fallback — copy to clipboard
-    writeClip(csv); toast('Download blocked — CSV copied to clipboard instead');
-  }
+  } catch(e) { writeClip(csv); toast('CSV copied to clipboard'); }
 }
 
-// ════════════════════════════════════
-// RAW DATA TAB
-// ════════════════════════════════════
-let RAW_HEADERS = [];
-let RAW_ROWS    = [];
-
-function initRawData(rows) {
-  RAW_HEADERS = (rows[0] || []).map((v,i) => v ? String(v).trim() : 'Col '+i);
-  RAW_ROWS    = rows.slice(1).filter(r => r && r[0]);
-  renderRawData();
-}
-
-function renderRawData() {
-  const srch = (document.getElementById('rd-search').value||'').toLowerCase();
-  const filtered = srch
-    ? RAW_ROWS.filter(r => r.some(v => String(v||'').toLowerCase().includes(srch)))
-    : RAW_ROWS;
-  document.getElementById('rd-count').textContent = filtered.length + ' rows';
-  // Headers
-  document.getElementById('rd-head').innerHTML =
-    RAW_HEADERS.map(h => `<th style="min-width:80px">${h}</th>`).join('');
-  // Rows (cap at 2000 for performance)
-  const display = filtered.slice(0,2000);
-  document.getElementById('rd-body').innerHTML = display.map((r,ri) =>
-    `<tr>${RAW_HEADERS.map((_,ci) => `<td style="font-size:.78rem;white-space:nowrap;color:${ci===0?'var(--accent2)':'var(--text)'}">${r[ci]===null||r[ci]===undefined?'':r[ci]}</td>`).join('')}</tr>`
-  ).join('');
-  addColumnFilters('tbl-rawdata');
-}
-
-// ════════════════════════════════════
-// BOM TAB
-// ════════════════════════════════════
-let BOM_HEADERS = [];
-let BOM_ROWS    = [];
-
-function initBOM() {
-  const bomInput = document.getElementById('bom-input');
-  if (bomInput) {
-    bomInput.addEventListener('change', e => {
-      if (e.target.files[0]) loadBOM(e.target.files[0]);
-    });
-  }
-}
-
-// Wire up DOM listeners after page is fully loaded
-document.addEventListener('DOMContentLoaded', () => { initBOM(); });
-
-function loadBOM(file) {
-  showLoading('Reading BOM: ' + file.name);
-  const reader = new FileReader();
-  reader.onload = ev => {
-    try {
-      const wb2 = XLSX.read(ev.target.result, {type:'array', cellDates:true});
-      // Try 'Indented BOM' sheet first, then first sheet
-      const sn = wb2.SheetNames.find(n => n.toLowerCase().includes('bom') || n.toLowerCase().includes('indent')) || wb2.SheetNames[0];
-      const ws2 = wb2.Sheets[sn];
-      const rows = XLSX.utils.sheet_to_json(ws2, {header:1, defval:null, raw:false});
-      BOM_HEADERS = (rows[0]||[]).map((v,i) => v?String(v).trim():'Col '+i);
-      BOM_ROWS    = rows.slice(1).filter(r => r && r[0]);
-      // Build product selector from TOP column (col 0)
-      const tops = [...new Set(BOM_ROWS.map(r=>String(r[0]||'').trim()).filter(Boolean))];
-      const bomSel = document.getElementById('bom-prod');
-      bomSel.innerHTML = '<option value="all">All products</option>' +
-        tops.map(t=>`<option value="${t}">${t}</option>`).join('');
-      document.getElementById('bom-toolbar').style.display='';
-      document.getElementById('bom-status').textContent = `Loaded: ${file.name} · ${BOM_ROWS.length} rows · sheet: ${sn}`;
-      hideLoading();
-      renderBOM();
-    } catch(err) {
-      hideLoading();
-      document.getElementById('bom-status').textContent = 'Error: ' + err.message;
-    }
-  };
-  reader.readAsArrayBuffer(file);
-}
-
-function renderBOM() {
-  const srch = (document.getElementById('bom-search').value||'').toLowerCase();
-  const prod = document.getElementById('bom-prod').value;
-  const filtered = BOM_ROWS.filter(r => {
-    if (prod!=='all' && String(r[0]||'').trim() !== prod) return false;
-    if (srch && !r.some(v => String(v||'').toLowerCase().includes(srch))) return false;
-    return true;
-  });
-  document.getElementById('bom-head').innerHTML =
-    BOM_HEADERS.map(h=>`<th style="min-width:80px">${h}</th>`).join('');
-  document.getElementById('bom-body').innerHTML = filtered.slice(0,3000).map(r =>
-    `<tr>${BOM_HEADERS.map((_,ci) => {
-      const v = r[ci]===null||r[ci]===undefined?'':r[ci];
-      // Highlight items that are in shortage
-      const isShortItem = ci===1 && ALL_SHORTS.some(s=>s.item===String(v).trim());
-      return `<td style="font-size:.78rem;white-space:nowrap;${ci===0?'color:var(--accent2);font-weight:700':isShortItem?'color:var(--red);font-weight:700':''}">${v}</td>`;
-    }).join('')}</tr>`
-  ).join('');
-  addColumnFilters('tbl-bom');
-}
-
-// ════════════════════════════════════
-// COLUMN FILTER ENGINE
-// Adds a filter input row under every table header.
-// Call addColumnFilters(tableId) after rendering any table.
-// ════════════════════════════════════
-const COL_FILTERS = {};  // tableId -> {colIdx -> filterValue}
-
-function addColumnFilters(tableId) {
+// ══════════════════════════════════════
+// COLUMN FILTERS
+// ══════════════════════════════════════
+const COL_FILTERS = {};
+function addColFilters(tableId) {
   const tbl = document.getElementById(tableId);
   if (!tbl) return;
-  tbl.classList.add('has-filters');
   const thead = tbl.querySelector('thead');
   if (!thead) return;
-  const headerRow = thead.querySelector('tr');
-  if (!headerRow) return;
-  // Remove existing filter row if any
-  const existing = thead.querySelector('tr.filter-row');
-  if (existing) existing.remove();
-  // Build filter row
-  const filterRow = document.createElement('tr');
-  filterRow.className = 'filter-row';
+  tbl.querySelectorAll('tr.frow').forEach(r=>r.remove());
+  const hdrRow = thead.querySelector('tr');
+  if (!hdrRow) return;
   if (!COL_FILTERS[tableId]) COL_FILTERS[tableId] = {};
-  const ths = headerRow.querySelectorAll('th');
-  ths.forEach((th, i) => {
-    const ftd = document.createElement('th');
-    ftd.onclick = e => e.stopPropagation();
-    // Detect if this column has few unique values → use select, else text input
-    const colIdx = i;
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.placeholder = '🔍';
-    input.value = COL_FILTERS[tableId][colIdx] || '';
-    input.addEventListener('input', () => {
-      COL_FILTERS[tableId][colIdx] = input.value.toLowerCase().trim();
-      applyColumnFilters(tableId);
+  const frow = document.createElement('tr');
+  frow.className = 'frow';
+  Array.from(hdrRow.querySelectorAll('th')).forEach((_,i) => {
+    const th = document.createElement('th');
+    th.onclick = e => e.stopPropagation();
+    const inp = document.createElement('input');
+    inp.type='text'; inp.placeholder='🔍';
+    inp.value = COL_FILTERS[tableId][i] || '';
+    inp.addEventListener('input', () => {
+      COL_FILTERS[tableId][i] = inp.value.toLowerCase().trim();
+      applyColFilters(tableId);
     });
-    ftd.appendChild(input);
-    filterRow.appendChild(ftd);
+    th.appendChild(inp); frow.appendChild(th);
   });
-  thead.appendChild(filterRow);
-  // Adjust sticky top of filter row based on header row height
+  thead.appendChild(frow);
   requestAnimationFrame(() => {
-    const hh = headerRow.getBoundingClientRect().height || 29;
-    filterRow.querySelectorAll('th').forEach(th => {
-      th.style.top = hh + 'px';
-    });
+    const hh = (hdrRow.getBoundingClientRect().height || 27);
+    frow.querySelectorAll('th').forEach(th => th.style.top = hh + 'px');
   });
 }
 
-function applyColumnFilters(tableId) {
+function applyColFilters(tableId) {
   const tbl = document.getElementById(tableId);
   if (!tbl) return;
   const filters = COL_FILTERS[tableId] || {};
-  const tbody = tbl.querySelector('tbody');
-  if (!tbody) return;
-  Array.from(tbody.querySelectorAll('tr')).forEach(tr => {
+  Array.from(tbl.querySelector('tbody')?.querySelectorAll('tr') || []).forEach(tr => {
     const cells = tr.querySelectorAll('td');
-    let visible = true;
-    Object.entries(filters).forEach(([colIdx, fval]) => {
-      if (!fval) return;
-      const cell = cells[parseInt(colIdx)];
-      const text = cell ? cell.textContent.toLowerCase() : '';
-      if (!text.includes(fval)) visible = false;
+    let ok = true;
+    Object.entries(filters).forEach(([ci,fv]) => {
+      if (!fv) return;
+      const txt = (cells[+ci]?.textContent||'').toLowerCase();
+      if (!txt.includes(fv)) ok = false;
     });
-    tr.style.display = visible ? '' : 'none';
+    tr.style.display = ok ? '' : 'none';
   });
 }
 
-function clearColumnFilters(tableId) {
-  COL_FILTERS[tableId] = {};
-  const tbl = document.getElementById(tableId);
-  if (tbl) {
-    tbl.querySelectorAll('tr.filter-row input').forEach(inp => inp.value = '');
-    applyColumnFilters(tableId);
-  }
+// ══════════════════════════════════════
+// NAVIGATION
+// ══════════════════════════════════════
+function showTab(id, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+  btn.classList.add('active');
+  if (id==='shared') renderShared();
+  if (id==='po')     renderPO();
+  if (id==='summary') buildSummary();
 }
 
-// ════════════════════════════════════
+// ══════════════════════════════════════
 // UTILITIES
-// ════════════════════════════════════
+// ══════════════════════════════════════
+function showLoad(msg) {
+  document.getElementById('load-msg').textContent = msg||'Processing…';
+  document.getElementById('loading').classList.add('show');
+}
+function hideLoad() { document.getElementById('loading').classList.remove('show'); }
+function toast(msg) {
+  const el=document.getElementById('toast'); el.textContent=msg; el.classList.add('show');
+  setTimeout(()=>el.classList.remove('show'),2500);
+}
 function writeClip(text) {
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).catch(()=>fallbackCopy(text));
-  } else { fallbackCopy(text); }
+  if (navigator.clipboard?.writeText) { navigator.clipboard.writeText(text).catch(()=>fallbackCopy(text)); }
+  else fallbackCopy(text);
 }
 function fallbackCopy(text) {
   const ta=document.createElement('textarea'); ta.value=text;
   ta.style.cssText='position:fixed;opacity:0;top:0;left:0';
   document.body.appendChild(ta); ta.focus(); ta.select();
-  try { document.execCommand('copy'); } catch(e){}
+  try{document.execCommand('copy')}catch(e){}
   document.body.removeChild(ta);
 }
-function toast(msg) {
-  const el=document.getElementById('toast'); el.textContent=msg; el.classList.add('show');
-  setTimeout(()=>el.classList.remove('show'), 2500);
-}
-function showLoading(msg) {
-  document.getElementById('loading-msg').textContent = msg||'Processing…';
-  document.getElementById('loading').classList.add('show');
-}
-function hideLoading() { document.getElementById('loading').classList.remove('show'); }
 function resetApp() {
-  DATA=[]; PRODUCTS=[]; ALL_SHORTS=[]; ITEM_TO_TOPS={};
+  ['bom','order','inv','po'].forEach(k=>{
+    FILES[k]=null;
+    document.getElementById(`uc-${k}`).classList.remove('loaded');
+    document.getElementById(`uc-${k}-status`).textContent='Not loaded';
+  });
+  RESULTS=[]; PRIORITY=[]; FLAGS={};
   document.getElementById('upload-screen').style.display='';
   document.getElementById('main').style.display='none';
-  document.getElementById('topbar-health').style.display='none';
   document.getElementById('btn-reset').style.display='none';
-  document.getElementById('topbar-date').textContent='';
-  document.getElementById('file-input').value='';
+  document.getElementById('run-btn').disabled=true;
 }
+
+// Wire up summary dropdown
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('sum-aud')?.addEventListener('change', buildSummary);
+  document.getElementById('sc-search')?.addEventListener('input', renderShared);
+  document.getElementById('po-search')?.addEventListener('input', renderPO);
+});
 </script>
 </body>
 </html>
