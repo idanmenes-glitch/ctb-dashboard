@@ -121,6 +121,28 @@ tbody td{padding:6px 9px;vertical-align:top}
 #toast.show{opacity:1}
 /* Shared component highlight */
 .shared-warn{color:var(--orange);font-size:.7rem}
+/* Priority filter */
+#pri-filter-row{display:flex;gap:6px;align-items:center;margin-bottom:8px}
+#pri-filter-row input{flex:1;font-size:.75rem;padding:4px 8px}
+/* Remove button */
+.f-remove{padding:2px 7px;font-size:.68rem;border-radius:10px;background:rgba(100,100,100,.15);color:#888;border-color:#444}
+.f-remove:hover{background:rgba(200,50,50,.2);color:var(--red);border-color:var(--red)}
+/* Removed item style */
+.pri-item.removed{opacity:.4;border-style:dashed}
+/* ACT/SIM badge */
+.b-act{background:rgba(82,183,136,.12);color:var(--green)}
+.b-sim{background:var(--sim-bg);color:var(--sim)}
+/* Notes cell */
+.notes-input{background:transparent;border:none;border-bottom:1px solid var(--border);
+  color:var(--text);font-size:.72rem;width:100%;outline:none;padding:2px 4px;min-width:120px}
+.notes-input:focus{border-bottom-color:var(--accent)}
+/* Split limit input */
+.split-input{background:var(--card);border:1px solid var(--border);color:var(--text);
+  font-size:.72rem;width:70px;border-radius:4px;padding:2px 5px;text-align:right;outline:none}
+.split-input:focus{border-color:var(--accent)}
+/* Plan type badge */
+.b-act-s{background:rgba(82,183,136,.12);color:var(--green);font-size:.68rem;padding:1px 5px;border-radius:8px}
+.b-sim-s{background:var(--sim-bg);color:var(--sim);font-size:.68rem;padding:1px 5px;border-radius:8px}
 </style>
 </head>
 <body>
@@ -188,6 +210,13 @@ tbody td{padding:6px 9px;vertical-align:top}
     <div style="display:grid;grid-template-columns:320px 1fr;gap:14px;align-items:start">
       <div id="priority-panel">
         <h3>⬆ Priority order <span style="font-weight:400;color:var(--muted);font-size:.68rem">(drag to reorder)</span></h3>
+        <div id="pri-filter-row">
+          <input type="text" id="pri-filter" placeholder="Filter products…" oninput="buildPriorityList()">
+          <label style="font-size:.72rem;color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:4px">
+            <input type="checkbox" id="pri-show-removed" onchange="buildPriorityList()" style="width:auto;padding:0">
+            Show removed
+          </label>
+        </div>
         <div id="priority-list"></div>
         <button onclick="recalculate()" style="margin-top:10px;width:100%;background:var(--accent);color:#0d1b2a;border-color:var(--accent);font-weight:700">↻ Recalculate</button>
       </div>
@@ -211,6 +240,7 @@ tbody td{padding:6px 9px;vertical-align:top}
           <table id="tbl-plan"><thead><tr>
             <th onclick="psort('rank')" style="width:34px">#</th>
             <th onclick="psort('flag')" style="width:70px">Priority</th>
+            <th onclick="psort('wo_type')" style="width:50px">Type</th>
             <th onclick="psort('prod')" style="width:130px">Product</th>
             <th onclick="psort('desc')" style="width:220px">Description</th>
             <th onclick="psort('active_qty')" style="width:75px">Active Qty</th>
@@ -221,6 +251,7 @@ tbody td{padding:6px 9px;vertical-align:top}
             <th onclick="psort('n_blocking')" style="width:75px">Blocking</th>
             <th onclick="psort('first_due')" style="width:90px">First Due</th>
             <th onclick="psort('status')" style="width:90px">Status</th>
+            <th style="width:160px">Notes</th>
           </tr></thead><tbody id="plan-body"></tbody></table>
         </div>
       </div>
@@ -244,9 +275,11 @@ tbody td{padding:6px 9px;vertical-align:top}
         <th style="width:80px">Short Now</th>
         <th style="width:80px">PO Covers</th>
         <th style="width:80px">Remaining</th>
+        <th style="width:90px">Split Limit</th>
         <th style="width:100px">Resolved By</th>
         <th style="width:150px">Supplier</th>
-        <th>Open POs</th>
+        <th style="width:200px">Open POs</th>
+        <th style="width:160px">Notes</th>
       </tr></thead><tbody id="sh-body"></tbody></table>
     </div>
   </div>
@@ -266,7 +299,8 @@ tbody td{padding:6px 9px;vertical-align:top}
         <th style="width:90px">Total Need</th>
         <th style="width:80px">Shortage</th>
         <th style="width:70px">Products</th>
-        <th>Used by (product → need qty)</th>
+        <th style="width:280px">Used by (product → need qty)</th>
+        <th style="width:160px">Notes</th>
       </tr></thead><tbody id="sc-body"></tbody></table>
     </div>
   </div>
@@ -287,7 +321,8 @@ tbody td{padding:6px 9px;vertical-align:top}
         <th style="width:100px">ETA</th>
         <th style="width:70px">Days Away</th>
         <th style="width:150px">Supplier</th>
-        <th>Unblocks products</th>
+        <th style="width:200px">Unblocks products</th>
+        <th style="width:160px">Notes</th>
       </tr></thead><tbody id="po-body"></tbody></table>
     </div>
   </div>
@@ -326,6 +361,9 @@ let COMP_SUPPLIER = {};   // comp -> supplier from BOM
 let RESULTS = [];         // allocation results
 let PRIORITY = [];        // ordered list of product IDs
 let FLAGS = {};           // prod -> 'critical'|'normal'|'low'
+let REMOVED = new Set();  // products removed from analysis
+let SPLIT_LIMITS = {};    // comp -> max qty per product (split limit)
+let NOTES = {};           // key -> user note (prod, comp, po line, etc.)
 let planSortCol = 'rank', planSortDir = 1;
 
 const TODAY = new Date(); TODAY.setHours(0,0,0,0);
@@ -462,8 +500,11 @@ function runAllocation() {
   RESULTS = [];
 
   // Sort PRIORITY: Critical first, then Normal, then Low, within each group keep drag order
+  // Skip removed products
   const flagOrder = { critical: 0, normal: 1, low: 2 };
-  const sorted = [...PRIORITY].sort((a, b) => {
+  const sorted = [...PRIORITY]
+    .filter(p => !REMOVED.has(p))
+    .sort((a, b) => {
     const fa = flagOrder[FLAGS[a] || 'normal'];
     const fb = flagOrder[FLAGS[b] || 'normal'];
     if (fa !== fb) return fa - fb;
@@ -480,6 +521,9 @@ function runAllocation() {
 
     const compAnalysis = bom.map(c => {
       const need    = total_qty * c.qpa;
+      // Apply split limit: cap how much of this component this product can use
+      const splitLim = SPLIT_LIMITS[c.comp];
+      const needCapped = splitLim > 0 ? Math.min(need, splitLim) : need;
       const onHand  = pool[c.comp] || 0;
       // POs arriving before first_due
       const pos     = (PO_BY_ITEM[c.comp] || []).sort((a,b)=>a.eta-b.eta);
@@ -488,15 +532,17 @@ function runAllocation() {
       const buildNow   = c.qpa > 0 ? Math.floor(onHand / c.qpa) : 0;
       const buildPoDue = c.qpa > 0 ? Math.floor((onHand + poBefore) / c.qpa) : 0;
       const buildPoAll = c.qpa > 0 ? Math.floor((onHand + poAll) / c.qpa) : 0;
-      const shortNow   = Math.max(0, need - onHand);
-      const shortPo    = Math.max(0, need - onHand - poBefore);
+      const shortNow   = Math.max(0, needCapped - onHand);
+      const shortPo    = Math.max(0, needCapped - onHand - poBefore);
       // Resolution date
       let cumul = onHand; let resDate = null;
       for (const p of pos) {
         cumul += p.qty;
-        if (cumul >= need) { resDate = p.eta; break; }
+        if (cumul >= needCapped) { resDate = p.eta; break; }
       }
-      return { ...c, need: Math.round(need*10)/10, onHand, poBefore, poAll,
+      return { ...c, need: Math.round(needCapped*10)/10, need_uncapped: Math.round(need*10)/10,
+               splitLimited: splitLim > 0 && needCapped < need,
+               onHand, poBefore, poAll,
                buildNow, buildPoDue, buildPoAll,
                shortNow: Math.round(shortNow*10)/10,
                shortPo:  Math.round(shortPo*10)/10,
@@ -623,27 +669,57 @@ function updateKPIs() {
 // PRIORITY LIST (drag to reorder)
 // ══════════════════════════════════════
 function buildPriorityList() {
-  const list = document.getElementById('priority-list');
-  list.innerHTML = PRIORITY.map((prod, i) => {
-    const desc = (PROD_DESC[prod] || '').substring(0, 50);
-    const flag = FLAGS[prod] || 'normal';
-    return `<div class="pri-item" draggable="true" data-prod="${prod}"
+  const srch       = (document.getElementById('pri-filter')?.value || '').toLowerCase();
+  const showRemoved= document.getElementById('pri-show-removed')?.checked;
+  const list       = document.getElementById('priority-list');
+  const flagOrder  = {critical:0, normal:1, low:2};
+
+  let items = PRIORITY.map((prod,i) => ({prod, i})).filter(({prod}) => {
+    if (REMOVED.has(prod) && !showRemoved) return false;
+    if (srch && ![prod, PROD_DESC[prod]||''].join(' ').toLowerCase().includes(srch)) return false;
+    return true;
+  });
+
+  list.innerHTML = items.map(({prod, i}) => {
+    const desc    = (PROD_DESC[prod] || '').substring(0, 42);
+    const flag    = FLAGS[prod] || 'normal';
+    const removed = REMOVED.has(prod);
+    // ACT/SIM signal
+    const orders  = ORDERS_BY_PROD[prod] || [];
+    const hasAct  = orders.some(o => o.type === 'active');
+    const hasSim  = orders.some(o => o.type === 'planned');
+    const woTag   = hasAct && hasSim
+      ? `<span class="b-act-s">ACT</span><span class="b-sim-s">SIM</span>`
+      : hasAct ? `<span class="b-act-s">ACT</span>`
+      : hasSim ? `<span class="b-sim-s">SIM</span>` : '';
+    return `<div class="pri-item${removed?' removed':''}" draggable="${!removed}" data-prod="${prod}"
       ondragstart="dragStart(event)" ondragover="dragOver(event)"
       ondrop="dropItem(event)" ondragleave="dragLeave(event)" ondragend="dragEnd(event)">
       <span class="pri-rank">${i+1}</span>
       <span class="pri-prod">${prod}</span>
+      <span style="display:flex;gap:3px;flex-shrink:0">${woTag}</span>
       <span class="pri-desc" title="${desc}">${desc}</span>
       <div class="pri-flag">
-        <button class="f-crit ${flag==='critical'?'active':''}" onclick="setFlag('${prod}','critical',this)">🔴</button>
-        <button class="f-norm ${flag==='normal'?'active':''}" onclick="setFlag('${prod}','normal',this)">🔵</button>
-        <button class="f-low ${flag==='low'?'active':''}" onclick="setFlag('${prod}','low',this)">🟡</button>
+        ${removed ? '' : `
+        <button class="f-crit ${flag==='critical'?'active':''}" onclick="setFlag('${prod}','critical')" title="Critical">🔴</button>
+        <button class="f-norm ${flag==='normal'?'active':''}" onclick="setFlag('${prod}','normal')" title="Normal">🔵</button>
+        <button class="f-low ${flag==='low'?'active':''}" onclick="setFlag('${prod}','low')" title="Low">🟡</button>`}
+        <button class="f-remove" onclick="toggleRemove('${prod}')" title="${removed?'Restore to analysis':'Remove from analysis'}">
+          ${removed ? '↩' : '✕'}
+        </button>
       </div>
     </div>`;
   }).join('');
 }
 
-function setFlag(prod, flag, btn) {
+function setFlag(prod, flag) {
   FLAGS[prod] = flag;
+  buildPriorityList();
+}
+
+function toggleRemove(prod) {
+  if (REMOVED.has(prod)) REMOVED.delete(prod);
+  else REMOVED.add(prod);
   buildPriorityList();
 }
 
@@ -711,22 +787,37 @@ function renderPlan() {
   document.getElementById('plan-body').innerHTML = rows.map(r => {
     const pct = r.pctNow;
     const dc  = !r.first_due ? 'var(--muted)' : daysDiff(r.first_due)<0 ? 'var(--red)' : daysDiff(r.first_due)<14 ? 'var(--orange)' : 'var(--muted)';
-    return `<tr style="cursor:pointer" onclick="jumpToShortage('${r.prod}')">
-      <td style="color:var(--muted);font-size:.72rem">${r.rank}</td>
-      <td><span style="font-size:.72rem">${flagBadge[r.flag||'normal']}</span></td>
-      <td style="font-weight:700;color:var(--accent2);font-size:.8rem">${r.prod}</td>
-      <td><span class="trunc" title="${r.desc}">${r.desc||'—'}</span></td>
-      <td style="text-align:right;color:var(--accent)">${r.active_qty||'—'}</td>
-      <td style="text-align:right;color:var(--sim)">${r.planned_qty||'—'}</td>
-      <td style="text-align:right;font-weight:700;color:${r.buildNow>0?'var(--green)':'var(--red)'}">${r.buildNow}</td>
-      <td style="text-align:right;color:${r.buildPoDue>=r.total_qty?'var(--green)':'var(--orange)'}">${r.buildPoDue}</td>
-      <td>
+    const hasAct = r.orders.some(o=>o.type==='active');
+    const hasSim = r.orders.some(o=>o.type==='planned');
+    const woTag  = hasAct && hasSim
+      ? `<span class="b-act-s">ACT</span> <span class="b-sim-s">SIM</span>`
+      : hasAct ? `<span class="b-act-s">ACT</span>`
+      : hasSim ? `<span class="b-sim-s">SIM</span>` : '—';
+    const noteKey = `plan_${r.prod}`;
+    const noteVal = (NOTES[noteKey]||'').replace(/"/g,'&quot;');
+    return `<tr style="cursor:pointer">
+      <td onclick="jumpToShortage('${r.prod}')" style="color:var(--muted);font-size:.72rem">${r.rank}</td>
+      <td onclick="jumpToShortage('${r.prod}')"><span style="font-size:.72rem">${flagBadge[r.flag||'normal']}</span></td>
+      <td onclick="jumpToShortage('${r.prod}')">${woTag}</td>
+      <td onclick="jumpToShortage('${r.prod}')" style="font-weight:700;color:var(--accent2);font-size:.8rem">${r.prod}</td>
+      <td onclick="jumpToShortage('${r.prod}')"><span class="trunc" title="${r.desc}">${r.desc||'—'}</span></td>
+      <td onclick="jumpToShortage('${r.prod}')" style="text-align:right;color:var(--accent)">${r.active_qty||'—'}</td>
+      <td onclick="jumpToShortage('${r.prod}')" style="text-align:right;color:var(--sim)">${r.planned_qty||'—'}</td>
+      <td onclick="jumpToShortage('${r.prod}')" style="text-align:right;font-weight:700;color:${r.buildNow>0?'var(--green)':'var(--red)'}">${r.buildNow}</td>
+      <td onclick="jumpToShortage('${r.prod}')" style="text-align:right;color:${r.buildPoDue>=r.total_qty?'var(--green)':'var(--orange)'}">${r.buildPoDue}</td>
+      <td onclick="jumpToShortage('${r.prod}')">
         <div class="prog"><div class="prog-f" style="width:${pct}%;background:${progC(pct)}"></div></div>
         <span style="font-size:.72rem;color:${progC(pct)};margin-left:4px">${pct}%</span>
       </td>
-      <td style="text-align:right;color:${r.n_blocking>0?'var(--red)':'var(--green)'};font-weight:${r.n_blocking>0?700:400}">${r.n_blocking}</td>
-      <td style="color:${dc};font-size:.78rem">${fd(r.first_due)}</td>
-      <td><span class="badge ${stBadge[r.status]||'b-info'}">${r.status}</span></td>
+      <td onclick="jumpToShortage('${r.prod}')" style="text-align:right;color:${r.n_blocking>0?'var(--red)':'var(--green)'};font-weight:${r.n_blocking>0?700:400}">${r.n_blocking}</td>
+      <td onclick="jumpToShortage('${r.prod}')" style="color:${dc};font-size:.78rem">${fd(r.first_due)}</td>
+      <td onclick="jumpToShortage('${r.prod}')"><span class="badge ${stBadge[r.status]||'b-info'}">${r.status}</span></td>
+      <td onclick="event.stopPropagation()">
+        <input class="notes-input" type="text" value="${noteVal}" placeholder="Add note…"
+          data-key="${noteKey}" onchange="NOTES[this.dataset.key]=this.value"
+          onfocus="this.style.borderBottomColor='var(--accent)'"
+          onblur="this.style.borderBottomColor='var(--border)'">
+      </td>
     </tr>`;
   }).join('');
   addColFilters('tbl-plan');
@@ -767,18 +858,35 @@ function renderShortage() {
       `<span style="font-size:.72rem;color:var(--muted)">${p.order}: ${Math.round(p.qty)} by ${fd(p.eta)} (${p.supplier})</span>`
     ).join('<br>');
     const supp = c.supplier || PO_BY_ITEM[c.comp]?.[0]?.supplier || COMP_SUPPLIER[c.comp] || '—';
+    const splitKey  = c.comp;
+    const splitVal  = SPLIT_LIMITS[splitKey] || '';
+    const noteKey   = `sh_${prod.prod}_${c.comp}`;
+    const noteVal   = (NOTES[noteKey]||'').replace(/"/g,'&quot;');
+    const splitWarn = c.splitLimited ? `<span style="font-size:.68rem;color:var(--orange)" title="Split limit active: ${SPLIT_LIMITS[c.comp]}">⚠ limited</span>` : '';
     return `<tr>
       <td style="font-family:monospace;font-weight:700;color:var(--accent2);font-size:.78rem">${c.comp}</td>
       <td><span class="trunc" title="${c.desc}">${c.desc||'—'}</span></td>
       <td style="text-align:right">${c.qpa}</td>
-      <td style="text-align:right;font-weight:700">${c.need}</td>
+      <td style="text-align:right;font-weight:700">${c.need} ${splitWarn}</td>
       <td style="text-align:right">${Math.round(c.onHand)}</td>
       <td style="text-align:right;font-weight:700;color:var(--red)">${Math.round(c.shortNow)}</td>
       <td style="text-align:right;color:${poCover>0?'var(--green)':'var(--muted)'}">${poCover||'—'}</td>
       <td style="text-align:right;font-weight:700;color:${remaining>0?'var(--red)':'var(--green)'}">${remaining||'✓'}</td>
+      <td>
+        <input class="split-input" type="number" min="0" value="${splitVal}" placeholder="No limit"
+          title="Max qty this product can take of this component"
+          data-comp="${c.comp}"
+          onchange="SPLIT_LIMITS[this.dataset.comp]=parseFloat(this.value)||0;toast('Split limit set for ${c.comp}')">
+      </td>
       <td style="font-weight:700;color:${resFg}">${c.resDate?fd(c.resDate):'Unresolved'}</td>
       <td style="font-size:.75rem"><span class="trunc" title="${supp}">${supp}</span></td>
       <td style="font-size:.72rem;color:var(--muted)">${poLines||'<span style="color:var(--red)">No open POs</span>'}</td>
+      <td>
+        <input class="notes-input" type="text" value="${noteVal}" placeholder="Add note…"
+          data-key="${noteKey}" onchange="NOTES[this.dataset.key]=this.value"
+          onfocus="this.style.borderBottomColor='var(--accent)'"
+          onblur="this.style.borderBottomColor='var(--border)'">
+      </td>
     </tr>`;
   }).join('') || `<tr><td colspan="11" style="padding:20px;text-align:center;color:var(--green)">✓ No shortages for this product</td></tr>`;
   addColFilters('tbl-shortage');
@@ -809,6 +917,8 @@ function renderShared() {
     const usedBy = c.products.map(p =>
       `<span style="color:var(--accent2);font-size:.72rem">${p.prod}</span> <span style="color:var(--muted);font-size:.7rem">(need ${p.need}, short ${Math.round(p.shortNow)})</span>`
     ).join(' &nbsp;|&nbsp; ');
+    const noteKey = `sc_${c.comp}`;
+    const noteVal = (NOTES[noteKey]||'').replace(/"/g,'&quot;');
     return `<tr>
       <td style="font-family:monospace;font-weight:700;color:var(--orange);font-size:.78rem">${c.comp}</td>
       <td><span class="trunc" title="${c.desc}">${c.desc||'—'}</span></td>
@@ -817,6 +927,12 @@ function renderShared() {
       <td style="text-align:right;font-weight:700;color:var(--red)">${totalShort}</td>
       <td style="text-align:right;font-weight:700;color:var(--orange)">${c.products.length}</td>
       <td style="font-size:.75rem">${usedBy}</td>
+      <td>
+        <input class="notes-input" type="text" value="${noteVal}" placeholder="Add note…"
+          data-key="${noteKey}" onchange="NOTES[this.dataset.key]=this.value"
+          onfocus="this.style.borderBottomColor='var(--accent)'"
+          onblur="this.style.borderBottomColor='var(--border)'">
+      </td>
     </tr>`;
   }).join('') || `<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--muted)">No shared shortage components found.</td></tr>`;
   addColFilters('tbl-shared');
@@ -846,6 +962,8 @@ function renderPO() {
     const ub   = p.unblocks.length > 0
       ? p.unblocks.map(u=>`<span style="color:var(--accent2);font-size:.72rem">${u}</span>`).join(' ')
       : '<span style="color:var(--muted);font-size:.72rem">—</span>';
+    const noteKey = `po_${p.order}_${p.item}`;
+    const noteVal = (NOTES[noteKey]||'').replace(/"/g,'&quot;');
     return `<tr>
       <td style="font-family:monospace;font-weight:700;color:var(--accent2);font-size:.78rem">${p.item}</td>
       <td><span class="trunc" title="${p.desc}">${p.desc||'—'}</span></td>
@@ -855,6 +973,12 @@ function renderPO() {
       <td style="text-align:right;font-weight:700;color:${dc}">${days<9999?days+'d':'—'}</td>
       <td style="font-size:.75rem"><span class="trunc" title="${p.supplier}">${p.supplier||'—'}</span></td>
       <td>${ub}</td>
+      <td>
+        <input class="notes-input" type="text" value="${noteVal}" placeholder="Add note…"
+          data-key="${noteKey}" onchange="NOTES[this.dataset.key]=this.value"
+          onfocus="this.style.borderBottomColor='var(--accent)'"
+          onblur="this.style.borderBottomColor='var(--border)'">
+      </td>
     </tr>`;
   }).join('') || `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--muted)">No open POs found.</td></tr>`;
   addColFilters('tbl-po');
