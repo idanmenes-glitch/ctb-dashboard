@@ -132,17 +132,35 @@ h2 { font-size: .95rem; font-weight: 600; letter-spacing: .03em; text-transform:
 .ml-auto { margin-left: auto; }
 
 /* ── Table ── */
-.tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: var(--radius); border: 1px solid var(--border); }
+.tbl-wrap { overflow-x: auto; overflow-y: auto; max-height: calc(100vh - 220px); -webkit-overflow-scrolling: touch; border-radius: var(--radius); border: 1px solid var(--border); }
 table { border-collapse: collapse; width: 100%; font-size: .8rem; }
 thead th {
-  background: var(--panel); color: var(--muted); padding: 9px 10px;
+  background: var(--panel); color: var(--muted); padding: 7px 10px 0 10px;
   text-align: left; white-space: nowrap; border-bottom: 1px solid var(--border);
   cursor: pointer; user-select: none; font-weight: 600; font-size: .75rem;
   text-transform: uppercase; letter-spacing: .04em;
-  position: sticky; top: 0;
+  position: sticky; top: 0; z-index: 10;
 }
 thead th.sol-hdr { background: #0d2818; color: var(--sol); }
 thead th:hover { color: var(--text); }
+/* Filter row sits just below header, also sticky */
+thead tr.filter-row th {
+  background: var(--navy); padding: 4px 6px 5px 6px;
+  top: 29px; /* height of header row */
+  cursor: default;
+}
+thead tr.filter-row th input,
+thead tr.filter-row th select {
+  width: 100%; background: var(--card); border: 1px solid var(--border);
+  color: var(--text); border-radius: 4px; padding: 3px 6px;
+  font-size: .72rem; outline: none; font-family: inherit;
+  -webkit-appearance: none; min-width: 0;
+}
+thead tr.filter-row th input:focus,
+thead tr.filter-row th select:focus { border-color: var(--accent); }
+/* Two-row sticky offset for tbody */
+table.has-filters thead th:first-child { top: 0; }
+
 tbody tr { border-bottom: 1px solid rgba(42,63,85,.5); transition: background .1s; }
 tbody tr:hover td { background: rgba(33,150,243,.05) !important; }
 tbody td { padding: 8px 10px; vertical-align: top; }
@@ -314,7 +332,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px;
       <button class="btn ml-auto" onclick="exportCSV('readiness')">⬇ Export</button>
     </div>
     <div class="tbl-wrap">
-      <table><thead><tr>
+      <table id="tbl-readiness"><thead><tr>
         <th onclick="rsort('rank')" style="width:36px">#</th>
         <th onclick="rsort('top')" style="width:130px">Product</th>
         <th onclick="rsort('top_desc')" style="width:220px">Description</th>
@@ -355,7 +373,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px;
       <button class="btn ml-auto" onclick="exportCSV('shortage')">⬇ Export</button>
     </div>
     <div class="tbl-wrap">
-      <table><thead><tr>
+      <table id="tbl-shortage"><thead><tr>
         <th style="width:60px">WO</th>
         <th style="width:110px">Item</th>
         <th style="width:200px">Description</th>
@@ -390,7 +408,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px;
       <button class="btn ml-auto" onclick="exportCSV('warning')">⬇ Export</button>
     </div>
     <div class="tbl-wrap">
-      <table><thead><tr>
+      <table id="tbl-warning"><thead><tr>
         <th style="width:60px">WO</th>
         <th style="width:110px">Item</th>
         <th style="width:180px">Description</th>
@@ -418,7 +436,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px;
       <button class="btn ml-auto" onclick="exportCSV('rootcause')">⬇ Export</button>
     </div>
     <div class="tbl-wrap">
-      <table><thead><tr>
+      <table id="tbl-rootcause"><thead><tr>
         <th style="width:60px">WO</th>
         <th style="width:110px">Item</th>
         <th style="width:180px">Description</th>
@@ -445,7 +463,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px;
       <button class="btn ml-auto" onclick="exportCSV('tiaduf')">⬇ Export</button>
     </div>
     <div class="tbl-wrap">
-      <table><thead><tr>
+      <table id="tbl-tiaduf"><thead><tr>
         <th style="width:60px">WO</th>
         <th style="width:110px">Item</th>
         <th style="width:180px">Description</th>
@@ -526,7 +544,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px;
       <span id="rd-count" style="font-size:.78rem;color:var(--muted);"></span>
       <button class="btn ml-auto" onclick="exportCSV('rawdata')">⬇ Export</button>
     </div>
-    <div class="tbl-wrap"><table><thead><tr id="rd-head"></tr></thead><tbody id="rd-body"></tbody></table></div>
+    <div class="tbl-wrap"><table id="tbl-rawdata"><thead><tr id="rd-head"></tr></thead><tbody id="rd-body"></tbody></table></div>
   </div>
 
   <!-- ── BOM ── -->
@@ -548,7 +566,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px;
       <select id="bom-prod" onchange="renderBOM()" style="max-width:260px;"></select>
       <button class="btn ml-auto" onclick="exportCSV('bom')">⬇ Export</button>
     </div>
-    <div class="tbl-wrap"><table><thead><tr id="bom-head"></tr></thead><tbody id="bom-body"></tbody></table></div>
+    <div class="tbl-wrap"><table id="tbl-bom"><thead><tr id="bom-head"></tr></thead><tbody id="bom-body"></tbody></table></div>
   </div>
 
 </div>
@@ -710,7 +728,7 @@ function parseAndRender(rows, filename) {
       supplier:   String(r[C.SUPPLIER] || '').trim(),
       lt:         flt(r[C.LT]),
       planner:    String(r[C.PLANNER] || '').trim(),
-      is_sim:     /^ECI999/i.test(String(r[C.WO_ID] || '').trim()) || wo_status.includes('_Sim'),
+      is_sim:     (()=>{ const m=String(r[C.WO_ID]||'').match(/^[A-Za-z\-]*(\d+)/); return m?m[1].startsWith('999'):false; })() || wo_status.includes('_Sim'),
     });
   }
 
@@ -841,8 +859,13 @@ function buildProducts() {
     // The same Id repeats for every component in that WO — deduplicate.
     // ECI naming convention: ECI999xxx = Simulation WO, ECI006xxx = Active WO.
     // Exclude supply PO IDs (2400L..., 2400O..., Planned, etc.)
-    const isProductionWO = id => /^ECI\d/i.test(id);
-    const isSimWO        = id => /^ECI999/i.test(id);
+    // Prefix-agnostic WO classification — works for ECI-, RBBN-, or any prefix.
+    // Rule: extract the numeric part after any alpha/dash prefix.
+    //   999xxx → Simulation WO (planned, not released)
+    //   any other number → Active WO
+    const extractWONum  = id => { const m = String(id||'').match(/^[A-Za-z\-]*(\d+)/); return m ? m[1] : null; };
+    const isProductionWO = id => extractWONum(id) !== null;
+    const isSimWO        = id => { const n = extractWONum(id); return n ? n.startsWith('999') : false; };
     const seenA = {}, seenS = {};
     [...grp.active, ...grp.sim].forEach(c => {
       if (!isProductionWO(c.wo_id)) return;
@@ -1002,7 +1025,6 @@ function renderReadiness() {
   });
   const progColor = pct => pct===100?'var(--green)':pct>=50?'var(--orange)':'var(--red)';
   document.getElementById('r-body').innerHTML = rows.map(p => {
-    const pct = p.pct_short;
     const dc  = p.days_away < 0 ? 'var(--red)' : p.days_away < 14 ? 'var(--orange)' : p.days_away < 30 ? 'var(--sol2)' : 'var(--muted)';
     const wo  = p.has_sim && p.has_active ? `<span class="badge b-sim">A+S</span>` : p.has_sim ? `<span class="badge b-sim">SIM</span>` : `<span class="badge b-act">ACT</span>`;
     const remark = (USER_REMARKS[p.top]||'').replace(/"/g,'&quot;');
@@ -1032,6 +1054,7 @@ function renderReadiness() {
       </td>
     </tr>`;
   }).join('');
+  addColumnFilters('tbl-readiness');
 }
 
 function selectProductFromReadiness(top) {
@@ -1097,6 +1120,7 @@ function renderShortage() {
       <td class="sol-cell sol2-cell">${sols.partial||'<span class="sol-empty">—</span>'}</td>
     </tr>`;
   }).join('');
+  addColumnFilters('tbl-shortage');
 }
 
 function renderWarning() {
@@ -1157,6 +1181,8 @@ function renderRC() {
       <td class="sol-cell sol3-cell">${sols.realloc||'<span class="sol-empty">—</span>'}</td>
     </tr>`;
   }).join('');
+  addColumnFilters('tbl-rootcause');
+  addColumnFilters('tbl-warning');
 }
 
 function renderTiaduf() {
@@ -1433,11 +1459,13 @@ function renderRawData() {
   // Headers
   document.getElementById('rd-head').innerHTML =
     RAW_HEADERS.map(h => `<th style="min-width:80px">${h}</th>`).join('');
+  addColumnFilters('tbl-tiaduf');
   // Rows (cap at 2000 for performance)
   const display = filtered.slice(0,2000);
   document.getElementById('rd-body').innerHTML = display.map((r,ri) =>
     `<tr>${RAW_HEADERS.map((_,ci) => `<td style="font-size:.78rem;white-space:nowrap;color:${ci===0?'var(--accent2)':'var(--text)'}">${r[ci]===null||r[ci]===undefined?'':r[ci]}</td>`).join('')}</tr>`
   ).join('');
+  addColumnFilters('tbl-rawdata');
 }
 
 // ════════════════════════════════════
@@ -1497,6 +1525,84 @@ function renderBOM() {
       return `<td style="font-size:.78rem;white-space:nowrap;${ci===0?'color:var(--accent2);font-weight:700':isShortItem?'color:var(--red);font-weight:700':''}">${v}</td>`;
     }).join('')}</tr>`
   ).join('');
+  addColumnFilters('tbl-bom');
+}
+
+// ════════════════════════════════════
+// COLUMN FILTER ENGINE
+// Adds a filter input row under every table header.
+// Call addColumnFilters(tableId) after rendering any table.
+// ════════════════════════════════════
+const COL_FILTERS = {};  // tableId -> {colIdx -> filterValue}
+
+function addColumnFilters(tableId) {
+  const tbl = document.getElementById(tableId);
+  if (!tbl) return;
+  tbl.classList.add('has-filters');
+  const thead = tbl.querySelector('thead');
+  if (!thead) return;
+  const headerRow = thead.querySelector('tr');
+  if (!headerRow) return;
+  // Remove existing filter row if any
+  const existing = thead.querySelector('tr.filter-row');
+  if (existing) existing.remove();
+  // Build filter row
+  const filterRow = document.createElement('tr');
+  filterRow.className = 'filter-row';
+  if (!COL_FILTERS[tableId]) COL_FILTERS[tableId] = {};
+  const ths = headerRow.querySelectorAll('th');
+  ths.forEach((th, i) => {
+    const ftd = document.createElement('th');
+    ftd.onclick = e => e.stopPropagation();
+    // Detect if this column has few unique values → use select, else text input
+    const colIdx = i;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = '🔍';
+    input.value = COL_FILTERS[tableId][colIdx] || '';
+    input.addEventListener('input', () => {
+      COL_FILTERS[tableId][colIdx] = input.value.toLowerCase().trim();
+      applyColumnFilters(tableId);
+    });
+    ftd.appendChild(input);
+    filterRow.appendChild(ftd);
+  });
+  thead.appendChild(filterRow);
+  // Adjust sticky top of filter row based on header row height
+  requestAnimationFrame(() => {
+    const hh = headerRow.getBoundingClientRect().height || 29;
+    filterRow.querySelectorAll('th').forEach(th => {
+      th.style.top = hh + 'px';
+    });
+  });
+}
+
+function applyColumnFilters(tableId) {
+  const tbl = document.getElementById(tableId);
+  if (!tbl) return;
+  const filters = COL_FILTERS[tableId] || {};
+  const tbody = tbl.querySelector('tbody');
+  if (!tbody) return;
+  Array.from(tbody.querySelectorAll('tr')).forEach(tr => {
+    const cells = tr.querySelectorAll('td');
+    let visible = true;
+    Object.entries(filters).forEach(([colIdx, fval]) => {
+      if (!fval) return;
+      const cell = cells[parseInt(colIdx)];
+      const text = cell ? cell.textContent.toLowerCase() : '';
+      if (!text.includes(fval)) visible = false;
+    });
+    tr.style.display = visible ? '' : 'none';
+  });
+}
+
+function clearColumnFilters(tableId) {
+  COL_FILTERS[tableId] = {};
+  const tbl = document.getElementById(tableId);
+  if (tbl) {
+    tbl.querySelectorAll('tr.filter-row input').forEach(inp => inp.value = '');
+    applyColumnFilters(tableId);
+  }
 }
 
 // ════════════════════════════════════
