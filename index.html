@@ -378,13 +378,14 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px;
         <th style="width:110px">Item</th>
         <th style="width:200px">Description</th>
         <th style="width:38px">Type</th>
+        <th style="width:80px">Need Total</th>
         <th style="width:70px">Short Qty</th>
-        <th style="width:65px">LIM</th>
+        <th style="width:65px">LIM Total</th>
         <th style="width:180px">Remarks</th>
         <th style="width:160px">Supplier</th>
         <th style="width:55px">LT (d)</th>
-        <th style="width:90px">Supply Due</th>
-        <th style="width:65px">Days Late</th>
+        <th style="width:260px">Supply schedule (per WO)</th>
+        <th style="width:110px">Shortage resolved</th>
         <th class="sol-hdr" style="width:200px">★ Alt Part</th>
         <th class="sol-hdr" style="width:200px">★ Alt Supplier</th>
         <th class="sol-hdr" style="width:200px">★ Split Order</th>
@@ -1073,7 +1074,6 @@ function selectProductFromReadiness(top) {
 function filterProdSelect() {
   const srch = document.getElementById('s-prod-search').value.toLowerCase();
   const sel  = document.getElementById('s-prod');
-  // Show/hide options based on search
   const allProds = PRODUCTS.filter(p => p.n_short > 0);
   const filtered = srch ? allProds.filter(p => [p.top,p.top_desc].join(' ').toLowerCase().includes(srch)) : allProds;
   sel.innerHTML = filtered.map(p =>
@@ -1088,32 +1088,110 @@ function renderShortage() {
   const srch  = document.getElementById('s-search').value.toLowerCase();
   const typeF = document.getElementById('s-type').value;
   const woF   = document.getElementById('s-wo').value;
-  let comps   = prod.all_rows.filter(c => {
-    if (!isShort(c)) return false;
-    if (typeF!=='all' && c.type!==typeF) return false;
-    if (woF==='active' && c.is_sim) return false;
-    if (woF==='sim' && !c.is_sim) return false;
-    if (srch && ![c.item,c.item_desc,c.supplier].join(' ').toLowerCase().includes(srch)) return false;
-    return true;
+
+  // Group all shortage rows by item, summing need/lim per WO,
+  // taking short once (ERP already totals it — same value repeats across WO rows)
+  const itemMap = {};
+  prod.all_rows.forEach(c => {
+    if (!isShort(c)) return;
+    if (typeF!=='all' && c.type!==typeF) return;
+    if (woF==='active' && c.is_sim) return;
+    if (woF==='sim' && !c.is_sim) return;
+    if (srch && ![c.item,c.item_desc,c.supplier,c.tiaduf].join(' ').toLowerCase().includes(srch)) return;
+    if (!itemMap[c.item]) {
+      itemMap[c.item] = {
+        ...c,
+        need_total:   0,
+        lim_total:    0,
+        short_val:    c.short,   // same across all rows — take once
+        avail_stock:  c.ok_flag ? 0 : (c.avail === 999999 ? 0 : c.avail),
+        wo_lines:     [],        // individual WO supply lines
+        po_lines:     [],        // all PO supply lines (for resolution date)
+      };
+    }
+    itemMap[c.item].need_total += c.need;
+    itemMap[c.item].lim_total  += c.lim;
+    // Collect supply line per WO (deduplicated by wo_id)
+    if (c.wo_id && !itemMap[c.item].wo_lines.find(l => l.wo_id===c.wo_id)) {
+      itemMap[c.item].wo_lines.push({
+        wo_id:      c.wo_id,
+        is_sim:     c.is_sim,
+        need:       c.need,
+        supply_qty: c.supply_qty,
+        due_supply: c.due_supply,
+        supplier:   c.supplier,
+      });
+    }
+    // Collect unique PO lines by order_id for resolution date calculation
+    if (c.order_id && c.supply_qty > 0 && c.due_supply &&
+        !itemMap[c.item].po_lines.find(l => l.order_id===c.order_id)) {
+      itemMap[c.item].po_lines.push({
+        order_id:   c.order_id,
+        supply_qty: c.supply_qty,
+        due_supply: c.due_supply,
+      });
+    }
   });
+
+  const comps = Object.values(itemMap);
   document.getElementById('s-count').textContent = `${comps.length} component${comps.length!==1?'s':''}`;
-  document.getElementById('s-body').innerHTML = comps.map((c,i) => {
+
+  // ── Resolution date: when cumulative PO supply + avail stock >= total shortage ──
+  function calcResolutionDate(comp) {
+    if (!comp.short_val || comp.short_val <= 0) return { date: null, status: 'ok' };
+    const lines = comp.po_lines.slice().sort((a,b) => a.due_supply - b.due_supply);
+    if (lines.length === 0) return { date: null, status: 'unresolved' };
+    let cumulative = comp.avail_stock || 0;
+    for (const line of lines) {
+      cumulative += line.supply_qty;
+      if (cumulative >= comp.short_val) {
+        return { date: line.due_supply, status: 'resolved' };
+      }
+    }
+    return {
+      date: lines[lines.length - 1].due_supply,
+      status: 'partial',
+      covered: Math.round(cumulative),
+      needed:  Math.round(comp.short_val)
+    };
+  }
+
+  document.getElementById('s-body').innerHTML = comps.map(c => {
     const rc   = rootCause(c);
     const sols = buildSolutions(c);
-    const late = c.due_supply && c.due_top && c.due_supply > c.due_top ? Math.ceil((c.due_supply-c.due_top)/86400000) : 0;
+    const res  = calcResolutionDate(c);
+    // Resolution date cell
+    let resCell = '';
+    if (res.status === 'resolved') {
+      const daysToRes = Math.ceil((res.date - TODAY) / 86400000);
+      const resFg = daysToRes < 0 ? 'var(--red)' : daysToRes <= 30 ? 'var(--orange)' : 'var(--green)';
+      resCell = `<span style="font-weight:700;color:${resFg}">${fd(res.date)}</span><br><span style="font-size:.7rem;color:var(--muted)">${daysToRes < 0 ? Math.abs(daysToRes)+'d ago' : 'in '+daysToRes+'d'}</span>`;
+    } else if (res.status === 'partial') {
+      resCell = `<span style="color:var(--orange);font-weight:700">Partial by ${fd(res.date)}</span><br><span style="font-size:.7rem;color:var(--muted)">${res.covered} / ${res.needed} covered</span>`;
+    } else {
+      resCell = `<span style="color:var(--red);font-weight:700">Unresolved</span><br><span style="font-size:.7rem;color:var(--muted)">No PO coverage</span>`;
+    }
+    // Build supply schedule summary across WOs
+    const schedLines = c.wo_lines.map(l => {
+      const simTag = l.is_sim ? '<span class="badge b-sim" style="font-size:.65rem">SIM</span> ' : '';
+      const late = l.due_supply && c.due_top && l.due_supply > c.due_top;
+      return `${simTag}<span style="font-size:.75rem;color:${late?'var(--orange)':'var(--muted)'}">${l.wo_id}: need ${Math.round(l.need)} | supply ${l.supply_qty?Math.round(l.supply_qty):'—'} by ${fd(l.due_supply)}</span>`;
+    }).join('<br>');
+    const hasLate = c.wo_lines.some(l => l.due_supply && c.due_top && l.due_supply > c.due_top);
     const woBadge = c.is_sim ? '<span class="badge b-sim">SIM</span>' : '<span class="badge b-act">ACT</span>';
     return `<tr class="${c.is_sim?'r-sim':''}">
       <td>${woBadge}</td>
       <td style="font-family:monospace;font-weight:700;font-size:.8rem;color:var(--accent2)">${c.item}</td>
       <td><span class="trunc" title="${c.item_desc}">${c.item_desc}</span></td>
       <td style="text-align:center">${c.type}</td>
-      <td style="text-align:right;font-weight:700;color:${c.short>0?'var(--red)':'var(--orange)'}">${c.short?Math.round(c.short):'—'}</td>
-      <td style="text-align:right;color:var(--sol2)">${c.lim?Math.round(c.lim):'—'}</td>
+      <td style="text-align:right;font-weight:700;color:var(--red)">${Math.round(c.need_total)}</td>
+      <td style="text-align:right;font-weight:700;color:${c.short_val>0?'var(--red)':'var(--orange)'}">${c.short_val?Math.round(c.short_val):'—'}</td>
+      <td style="text-align:right;color:var(--sol2)">${c.lim_total?Math.round(c.lim_total):'—'}</td>
       <td style="font-size:.75rem;color:var(--muted)">${c.remarks||'—'}</td>
       <td style="font-size:.78rem"><span class="trunc" title="${c.supplier}">${c.supplier||'—'}</span></td>
       <td style="text-align:right">${c.lt?Math.round(c.lt):'—'}</td>
-      <td style="font-size:.78rem;color:${late>0?'var(--orange)':'var(--muted)'}">${fd(c.due_supply)}</td>
-      <td style="font-weight:700;color:${late>0?'var(--orange)':'var(--muted)'}">${late?'+'+late+'d':'—'}</td>
+      <td style="font-size:.75rem;color:${hasLate?'var(--orange)':'var(--muted)'}">${schedLines||'—'}</td>
+      <td style="vertical-align:middle">${resCell}</td>
       <td class="sol-cell">${sols.altPart||'<span class="sol-empty">—</span>'}</td>
       <td class="sol-cell">${sols.altSup||'<span class="sol-empty">—</span>'}</td>
       <td class="sol-cell sol2-cell">${sols.split||'<span class="sol-empty">—</span>'}</td>
