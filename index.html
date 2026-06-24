@@ -1026,6 +1026,7 @@ function renderReadiness() {
   const progColor = pct => pct===100?'var(--green)':pct>=50?'var(--orange)':'var(--red)';
   document.getElementById('r-body').innerHTML = rows.map(p => {
     const dc  = p.days_away < 0 ? 'var(--red)' : p.days_away < 14 ? 'var(--orange)' : p.days_away < 30 ? 'var(--sol2)' : 'var(--muted)';
+    const pct = p.pct_short;
     const wo  = p.has_sim && p.has_active ? `<span class="badge b-sim">A+S</span>` : p.has_sim ? `<span class="badge b-sim">SIM</span>` : `<span class="badge b-act">ACT</span>`;
     const remark = (USER_REMARKS[p.top]||'').replace(/"/g,'&quot;');
     return `<tr class="${p.status==='FULLY BLOCKED'?'r-critical':''}" style="cursor:pointer;" title="Click to filter Shortages tab">
@@ -1150,6 +1151,7 @@ function renderWarning() {
       <td class="sol-cell sol2-cell">${sols.partial||'<span class="sol-empty">—</span>'}</td>
     </tr>`;
   }).join('') : `<tr><td colspan="11" style="padding:24px;text-align:center;color:var(--muted)">No early warnings in selected horizon.</td></tr>`;
+  addColumnFilters('tbl-warning');
 }
 
 function renderRC() {
@@ -1182,7 +1184,6 @@ function renderRC() {
     </tr>`;
   }).join('');
   addColumnFilters('tbl-rootcause');
-  addColumnFilters('tbl-warning');
 }
 
 function renderTiaduf() {
@@ -1207,6 +1208,7 @@ function renderTiaduf() {
       <td class="sol-cell sol2-cell">${sols.partial||'<span class="sol-empty">—</span>'}</td>
     </tr>`;
   }).join('') : `<tr><td colspan="12" style="padding:24px;text-align:center;color:var(--muted)">No TIADUF rows found.</td></tr>`;
+  addColumnFilters('tbl-tiaduf');
 }
 
 // ════════════════════════════════════
@@ -1459,7 +1461,6 @@ function renderRawData() {
   // Headers
   document.getElementById('rd-head').innerHTML =
     RAW_HEADERS.map(h => `<th style="min-width:80px">${h}</th>`).join('');
-  addColumnFilters('tbl-tiaduf');
   // Rows (cap at 2000 for performance)
   const display = filtered.slice(0,2000);
   document.getElementById('rd-body').innerHTML = display.map((r,ri) =>
@@ -1474,9 +1475,17 @@ function renderRawData() {
 let BOM_HEADERS = [];
 let BOM_ROWS    = [];
 
-document.getElementById('bom-input').addEventListener('change', e => {
-  if (e.target.files[0]) loadBOM(e.target.files[0]);
-});
+function initBOM() {
+  const bomInput = document.getElementById('bom-input');
+  if (bomInput) {
+    bomInput.addEventListener('change', e => {
+      if (e.target.files[0]) loadBOM(e.target.files[0]);
+    });
+  }
+}
+
+// Wire up DOM listeners after page is fully loaded
+document.addEventListener('DOMContentLoaded', () => { initBOM(); });
 
 function loadBOM(file) {
   showLoading('Reading BOM: ' + file.name);
