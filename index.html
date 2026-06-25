@@ -202,6 +202,8 @@ tbody td{padding:6px 9px;vertical-align:top}
     <button class="tab-btn" onclick="showTab('shared',this)">🔀 Shared Components</button>
     <button class="tab-btn" onclick="showTab('po',this)">🚚 Open POs</button>
     <button class="tab-btn" onclick="showTab('summary',this)">📄 Summary</button>
+    <button class="tab-btn" onclick="showTab('bom',this)">🔩 BOM</button>
+    <button class="tab-btn" onclick="showTab('rawdemand',this)">📋 Raw Demand</button>
   </div>
 
   <!-- BUILD PLAN -->
@@ -249,7 +251,9 @@ tbody td{padding:6px 9px;vertical-align:top}
             <th onclick="psort('build_po')" style="width:80px">Build+POs</th>
             <th onclick="psort('pct_now')" style="width:65px">% Now</th>
             <th onclick="psort('n_blocking')" style="width:75px">Blocking</th>
-            <th onclick="psort('first_due')" style="width:90px">First Due</th>
+            <th onclick="psort('first_due')" style="width:90px">Req. Date</th>
+            <th onclick="psort('firstSplitDate')" style="width:105px">First Split Date</th>
+            <th onclick="psort('fullProdDate')" style="width:105px">Full Prod. Date</th>
             <th onclick="psort('status')" style="width:90px">Status</th>
             <th style="width:160px">Notes</th>
           </tr></thead><tbody id="plan-body"></tbody></table>
@@ -339,6 +343,65 @@ tbody td{padding:6px 9px;vertical-align:top}
     </div>
     <div id="sum-out"></div>
   </div>
+
+  <!-- BOM BREAKDOWN -->
+  <div id="tab-bom" class="tab-panel">
+    <div class="toolbar">
+      <select id="bom-prod" onchange="renderBOM()" style="max-width:280px"></select>
+      <input type="text" id="bom-search" placeholder="Search component…" oninput="renderBOM()">
+      <select id="bom-level" onchange="renderBOM()" style="width:110px">
+        <option value="all">All levels</option>
+        <option value="1">Level 1 only</option>
+        <option value="2">Level 2 only</option>
+      </select>
+      <button class="ml-auto" onclick="exportCSV('bom')">⬇ Export</button>
+    </div>
+    <div class="tbl-wrap">
+      <table id="tbl-bom"><thead><tr>
+        <th style="width:40px">Level</th>
+        <th style="width:140px">Component</th>
+        <th style="width:240px">Description</th>
+        <th style="width:80px">Supply Type</th>
+        <th style="width:60px">QPA</th>
+        <th style="width:90px">Total Demand</th>
+        <th style="width:90px">On Hand</th>
+        <th style="width:90px">Receipts</th>
+        <th style="width:90px">Short Now</th>
+        <th style="width:150px">Supplier</th>
+        <th style="width:160px">Notes</th>
+      </tr></thead><tbody id="bom-body"></tbody></table>
+    </div>
+  </div>
+
+  <!-- RAW DEMAND -->
+  <div id="tab-rawdemand" class="tab-panel">
+    <div class="toolbar">
+      <select id="rd-prod" onchange="renderRawDemand()" style="max-width:280px"></select>
+      <select id="rd-type" onchange="renderRawDemand()" style="width:190px">
+        <option value="all">All order types</option>
+        <option value="Production Order">Production Orders</option>
+        <option value="Planned Production Order">Planned Production</option>
+      </select>
+      <input type="text" id="rd-search" placeholder="Search order / item…" oninput="renderRawDemand()">
+      <span id="rd-count" style="font-size:.78rem;color:var(--muted)"></span>
+      <button class="ml-auto" onclick="exportCSV('rawdemand')">⬇ Export</button>
+    </div>
+    <div class="tbl-wrap">
+      <table id="tbl-rawdemand"><thead><tr>
+        <th style="width:100px">Date</th>
+        <th style="width:110px">Order</th>
+        <th style="width:130px">Item</th>
+        <th style="width:190px">Order Type</th>
+        <th style="width:130px">Status</th>
+        <th style="width:80px">Demand</th>
+        <th style="width:90px">Sched. Receipt</th>
+        <th style="width:90px">Planned Supply</th>
+        <th style="width:130px">Father Item</th>
+        <th style="width:160px">Notes</th>
+      </tr></thead><tbody id="rd-body"></tbody></table>
+    </div>
+  </div>
+
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -364,6 +427,8 @@ let FLAGS = {};           // prod -> 'critical'|'normal'|'low'
 let REMOVED = new Set();  // products removed from analysis
 let SPLIT_LIMITS = {};    // comp -> max qty per product (split limit)
 let NOTES = {};           // key -> user note (prod, comp, po line, etc.)
+let RAW_BOM_ROWS = [];    // full BOM rows for BOM tab
+let RAW_ORDER_ROWS = [];  // full order rows for Raw Demand tab
 let planSortCol = 'rank', planSortDir = 1;
 
 const TODAY = new Date(); TODAY.setHours(0,0,0,0);
@@ -424,8 +489,10 @@ function parseAll() {
   // ── BOM ──
   showLoad('Parsing BOM…');
   BOM_BY_PROD = {}; PROD_DESC = {}; COMP_DESC = {}; COMP_SUPPLIER = {};
+  RAW_BOM_ROWS = [];
   const bomWs = FILES.bom.Sheets['Indented BOM'] || FILES.bom.Sheets[FILES.bom.SheetNames[0]];
   const bomRows = XLSX.utils.sheet_to_json(bomWs, { header:1, defval:null });
+  RAW_BOM_ROWS = bomRows; // store all rows including header
   // col0=FlatBOM#, col3=level, col4=FlatComp, col5=desc, col10=QPA, col26=supplier
   bomRows.slice(1).forEach(r => {
     const prod = String(r[0] || '').trim();
@@ -450,6 +517,7 @@ function parseAll() {
   ORDERS_BY_PROD = {};
   const ordWs = FILES.order.Sheets[FILES.order.SheetNames[0]];
   const ordRows = XLSX.utils.sheet_to_json(ordWs, { header:1, defval:null, raw:false });
+  RAW_ORDER_ROWS = ordRows; // store all rows including header
   // col0=date, col1=order, col3=item, col4=order_type, col5=status
   // col6=demand, col7=sched_receipt, col8=planned_supply, col11=father_item
   ordRows.slice(1).forEach(r => {
@@ -564,6 +632,27 @@ function runAllocation() {
       pool[c.comp] = Math.max(0, (pool[c.comp] || 0) - alloc);
     });
 
+    // ── Date calculations ──
+    // Collect all unique PO ETA dates across all components of this product
+    const allEtaDates = new Set([TODAY.getTime()]);
+    bom.forEach(c => (PO_BY_ITEM[c.comp]||[]).forEach(p => allEtaDates.add(p.eta.getTime())));
+    const etaSorted = [...allEtaDates].map(t => new Date(t)).sort((a,b)=>a-b);
+
+    let firstSplitDate = null, fullProdDate = null;
+    for (const checkDate of etaSorted) {
+      let maxBuild = Infinity;
+      for (const c of bom) {
+        const stock   = pool[c.comp] || 0;  // use current pool (post-allocation)
+        const poAvail = (PO_BY_ITEM[c.comp]||[]).filter(p=>p.eta<=checkDate).reduce((s,p)=>s+p.qty,0);
+        const avail   = stock + poAvail;
+        const buildable = c.qpa > 0 ? Math.floor(avail / c.qpa) : 0;
+        maxBuild = Math.min(maxBuild, buildable);
+      }
+      if (maxBuild >= 1 && !firstSplitDate) firstSplitDate = checkDate;
+      if (maxBuild >= total_qty && !fullProdDate) { fullProdDate = checkDate; break; }
+    }
+    if (firstSplitDate && firstSplitDate <= TODAY) firstSplitDate = TODAY; // already achievable
+
     RESULTS.push({
       prod, rank: idx + 1,
       desc: PROD_DESC[prod] || '',
@@ -574,6 +663,7 @@ function runAllocation() {
       buildNow, buildPoDue, buildPoAll,
       blocking, n_blocking: blocking.length,
       pctNow, pctPo, status,
+      firstSplitDate, fullProdDate,
     });
   });
 }
@@ -642,6 +732,8 @@ function initUI() {
   renderShared();
   renderPO();
   buildSummary();
+  initBOMSelect();
+  initRawDemandSelect();
 }
 
 function updateKPIs() {
@@ -811,6 +903,8 @@ function renderPlan() {
       </td>
       <td onclick="jumpToShortage('${r.prod}')" style="text-align:right;color:${r.n_blocking>0?'var(--red)':'var(--green)'};font-weight:${r.n_blocking>0?700:400}">${r.n_blocking}</td>
       <td onclick="jumpToShortage('${r.prod}')" style="color:${dc};font-size:.78rem">${fd(r.first_due)}</td>
+      <td onclick="jumpToShortage('${r.prod}')" style="font-size:.78rem;font-weight:600;color:${r.firstSplitDate?(r.firstSplitDate<=TODAY?'var(--green)':daysDiff(r.firstSplitDate)<=30?'var(--orange)':'var(--muted)'):'var(--red)'}">${r.firstSplitDate?fd(r.firstSplitDate):'—'}</td>
+      <td onclick="jumpToShortage('${r.prod}')" style="font-size:.78rem;font-weight:600;color:${r.fullProdDate?(r.fullProdDate<=TODAY?'var(--green)':daysDiff(r.fullProdDate)<=30?'var(--orange)':'var(--muted)'):'var(--red)'}">${r.fullProdDate?fd(r.fullProdDate):'—'}</td>
       <td onclick="jumpToShortage('${r.prod}')"><span class="badge ${stBadge[r.status]||'b-info'}">${r.status}</span></td>
       <td onclick="event.stopPropagation()">
         <input class="notes-input" type="text" value="${noteVal}" placeholder="Add note…"
@@ -1065,6 +1159,145 @@ function copySummary() {
 }
 
 // ══════════════════════════════════════
+// BOM BREAKDOWN
+// ══════════════════════════════════════
+function initBOMSelect() {
+  const sel = document.getElementById('bom-prod');
+  if (!sel) return;
+  const prods = [...new Set(RAW_BOM_ROWS.slice(1).map(r => String(r[0]||'').trim()).filter(Boolean))].sort();
+  sel.innerHTML = prods.map(p =>
+    `<option value="${p}">${p} — ${(PROD_DESC[p]||'').substring(0,50)}</option>`
+  ).join('');
+  renderBOM();
+}
+
+function renderBOM() {
+  const prod   = document.getElementById('bom-prod')?.value;
+  const srch   = (document.getElementById('bom-search')?.value||'').toLowerCase();
+  const lvlF   = document.getElementById('bom-level')?.value || 'all';
+  if (!prod) return;
+
+  // Filter BOM rows for this product (skip level 0 — that's the product itself)
+  const rows = RAW_BOM_ROWS.slice(1).filter(r => {
+    if (String(r[0]||'').trim() !== prod) return false;
+    const lvl = parseInt(r[3]||0);
+    if (lvl === 0) return false;
+    if (lvlF !== 'all' && lvl !== parseInt(lvlF)) return false;
+    if (srch && ![String(r[4]||''),String(r[5]||'')].join(' ').toLowerCase().includes(srch)) return false;
+    return true;
+  });
+
+  // Total demand for this product
+  const prodOrders = ORDERS_BY_PROD[prod] || [];
+  const totalDemand = prodOrders.reduce((s,o)=>s+o.qty,0);
+
+  document.getElementById('bom-body').innerHTML = rows.map(r => {
+    const lvl      = parseInt(r[3]||0);
+    const comp     = String(r[4]||'').trim();
+    const desc     = String(r[5]||'').trim();
+    const supType  = String(r[6]||'').trim().replace('2400_','');
+    const qpa      = parseFloat(r[10]||0)||0;
+    const totalDem = parseFloat(r[17]||0)||0;
+    const onHand   = parseFloat(r[18]||0)||(INVENTORY[comp]||0);
+    const receipts = parseFloat(r[19]||0)||0;
+    const supplier = String(r[26]||'').trim();
+    const need     = totalDemand * qpa;
+    const shortNow = Math.max(0, need - onHand);
+    const indent   = '&nbsp;'.repeat(lvl * 4);
+    const noteKey  = `bom_${prod}_${comp}`;
+    const noteVal  = (NOTES[noteKey]||'').replace(/"/g,'&quot;');
+    return `<tr>
+      <td style="text-align:center;color:var(--muted)">${lvl}</td>
+      <td style="font-family:monospace;font-size:.78rem;color:var(--accent2)">${indent}${comp}</td>
+      <td><span class="trunc" title="${desc}">${desc||'—'}</span></td>
+      <td style="font-size:.72rem;color:var(--muted)">${supType||'—'}</td>
+      <td style="text-align:right">${qpa||'—'}</td>
+      <td style="text-align:right;font-weight:600">${need?Math.round(need):'—'}</td>
+      <td style="text-align:right;color:${onHand>0?'var(--green)':'var(--muted)'}">${Math.round(onHand)}</td>
+      <td style="text-align:right;color:var(--accent)">${receipts||'—'}</td>
+      <td style="text-align:right;font-weight:700;color:${shortNow>0?'var(--red)':'var(--green)'}">${shortNow>0?Math.round(shortNow):'✓'}</td>
+      <td style="font-size:.75rem"><span class="trunc" title="${supplier}">${supplier||'—'}</span></td>
+      <td>
+        <input class="notes-input" type="text" value="${noteVal}" placeholder="Add note…"
+          data-key="${noteKey}" onchange="NOTES[this.dataset.key]=this.value"
+          onfocus="this.style.borderBottomColor='var(--accent)'"
+          onblur="this.style.borderBottomColor='var(--border)'">
+      </td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="11" style="padding:20px;text-align:center;color:var(--muted)">No BOM data for this product.</td></tr>`;
+  addColFilters('tbl-bom');
+}
+
+// ══════════════════════════════════════
+// RAW DEMAND
+// ══════════════════════════════════════
+function initRawDemandSelect() {
+  const sel = document.getElementById('rd-prod');
+  if (!sel) return;
+  const prods = Object.keys(ORDERS_BY_PROD).sort();
+  sel.innerHTML = `<option value="all">All products</option>` +
+    prods.map(p => `<option value="${p}">${p} — ${(PROD_DESC[p]||'').substring(0,45)}</option>`).join('');
+  renderRawDemand();
+}
+
+function renderRawDemand() {
+  const prodF = document.getElementById('rd-prod')?.value || 'all';
+  const typeF = document.getElementById('rd-type')?.value || 'all';
+  const srch  = (document.getElementById('rd-search')?.value||'').toLowerCase();
+
+  // Filter raw order rows
+  const rows = RAW_ORDER_ROWS.slice(1).filter(r => {
+    const otype  = String(r[4]||'');
+    const father = String(r[11]||'').trim();
+    const item   = String(r[3]||'').trim();
+    if (!['Production Order','Planned Production Order'].includes(otype)) return false;
+    if (prodF !== 'all' && father !== prodF) return false;
+    if (typeF !== 'all' && otype !== typeF) return false;
+    if (srch && ![String(r[1]||''),item,father,otype].join(' ').toLowerCase().includes(srch)) return false;
+    return true;
+  });
+
+  document.getElementById('rd-count').textContent = `${rows.length} rows`;
+
+  const typeBadge = t => t === 'Production Order'
+    ? `<span class="b-act-s">ACT</span>`
+    : `<span class="b-sim-s">SIM</span>`;
+
+  document.getElementById('rd-body').innerHTML = rows.map((r,i) => {
+    const date    = r[0] ? String(r[0]).substring(0,10) : '—';
+    const order   = String(r[1]||'');
+    const item    = String(r[3]||'').trim();
+    const otype   = String(r[4]||'');
+    const status  = String(r[5]||'');
+    const demand  = r[6] ? Math.round(parseFloat(r[6])||0) : '—';
+    const receipt = r[7] ? Math.round(parseFloat(r[7])||0) : '—';
+    const planned = r[8] ? Math.round(parseFloat(r[8])||0) : '—';
+    const father  = String(r[11]||'').trim();
+    const alt     = i%2===0?'':'background:rgba(255,255,255,.02)';
+    const noteKey = `rd_${order}_${item}`;
+    const noteVal = (NOTES[noteKey]||'').replace(/"/g,'&quot;');
+    return `<tr style="${alt}">
+      <td style="font-size:.78rem;color:var(--muted)">${date}</td>
+      <td style="font-size:.75rem;color:var(--muted)">${order}</td>
+      <td style="font-family:monospace;font-size:.78rem;color:var(--accent2)">${item}</td>
+      <td>${typeBadge(otype)} <span style="font-size:.72rem;color:var(--muted)">${otype}</span></td>
+      <td style="font-size:.75rem;color:var(--muted)">${status}</td>
+      <td style="text-align:right">${demand}</td>
+      <td style="text-align:right;color:var(--green)">${receipt}</td>
+      <td style="text-align:right;color:var(--sim)">${planned}</td>
+      <td style="font-size:.78rem;color:${father===item?'var(--accent)':'var(--muted)'}">${father}</td>
+      <td>
+        <input class="notes-input" type="text" value="${noteVal}" placeholder="Add note…"
+          data-key="${noteKey}" onchange="NOTES[this.dataset.key]=this.value"
+          onfocus="this.style.borderBottomColor='var(--accent)'"
+          onblur="this.style.borderBottomColor='var(--border)'">
+      </td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="10" style="padding:20px;text-align:center;color:var(--muted)">No demand rows found.</td></tr>`;
+  addColFilters('tbl-rawdemand');
+}
+
+// ══════════════════════════════════════
 // CSV EXPORT
 // ══════════════════════════════════════
 function csvC(v) {
@@ -1115,6 +1348,29 @@ function exportCSV(type) {
         csv += [item,p.desc||COMP_DESC[item]||'',p.order,Math.round(p.qty),fd(p.eta),days<9999?days:'',p.supplier,unblocks].map(csvC).join(',') + '\r\n';
       });
     });
+  } else if (type==='bom') {
+    const prod = document.getElementById('bom-prod')?.value;
+    if (!prod) return;
+    const totalDemand = (ORDERS_BY_PROD[prod]||[]).reduce((s,o)=>s+o.qty,0);
+    csv = ['Level','Component','Description','Supply Type','QPA','Total Demand','On Hand','Receipts','Short Now','Supplier'].map(csvC).join(',') + '\r\n';
+    RAW_BOM_ROWS.slice(1).filter(r=>String(r[0]||'').trim()===prod && parseInt(r[3]||0)>0).forEach(r => {
+      const qpa=parseFloat(r[10]||0)||0; const onHand=parseFloat(r[18]||0)||(INVENTORY[String(r[4]||'')]||0);
+      const need=totalDemand*qpa; const short=Math.max(0,need-onHand);
+      csv += [r[3],r[4],r[5],String(r[6]||'').replace('2400_',''),qpa,Math.round(need),Math.round(onHand),r[19]||0,Math.round(short),r[26]||''].map(csvC).join(',') + '\r\n';
+    });
+  } else if (type==='rawdemand') {
+    csv = ['Date','Order','Item','Order Type','Status','Demand','Sched. Receipt','Planned Supply','Father Item'].map(csvC).join(',') + '\r\n';
+    const prodF = document.getElementById('rd-prod')?.value||'all';
+    const typeF = document.getElementById('rd-type')?.value||'all';
+    RAW_ORDER_ROWS.slice(1).filter(r => {
+      const otype=String(r[4]||''); const father=String(r[11]||'').trim();
+      if (!['Production Order','Planned Production Order'].includes(otype)) return false;
+      if (prodF!=='all' && father!==prodF) return false;
+      if (typeF!=='all' && otype!==typeF) return false;
+      return true;
+    }).forEach(r => {
+      csv += [String(r[0]||'').substring(0,10),r[1],r[3],r[4],r[5],r[6]||'',r[7]||'',r[8]||'',r[11]].map(csvC).join(',') + '\r\n';
+    });
   }
   const fname = `mfg_${type}_${date}.csv`;
   try {
@@ -1127,37 +1383,164 @@ function exportCSV(type) {
 }
 
 // ══════════════════════════════════════
-// COLUMN FILTERS
+// EXCEL-STYLE COLUMN FILTERS
+// Supports: contains, equals, starts with, ends with,
+//           >, >=, <, <=, between (number/date), blank/non-blank
 // ══════════════════════════════════════
 const COL_FILTERS = {};
+
+// Filter operators
+const FILTER_OPS = [
+  { label: 'Contains',        value: 'contains' },
+  { label: 'Does not contain',value: 'notcontains' },
+  { label: 'Equals',          value: 'equals' },
+  { label: 'Not equals',      value: 'notequals' },
+  { label: 'Starts with',     value: 'startswith' },
+  { label: 'Ends with',       value: 'endswith' },
+  { label: '>',               value: 'gt' },
+  { label: '>=',              value: 'gte' },
+  { label: '<',               value: 'lt' },
+  { label: '<=',              value: 'lte' },
+  { label: 'Is blank',        value: 'blank' },
+  { label: 'Is not blank',    value: 'notblank' },
+];
+
+function testFilter(cellText, op, val) {
+  const t = cellText.trim().toLowerCase();
+  const v = (val||'').toLowerCase().trim();
+  const n = parseFloat(t); const nv = parseFloat(v);
+  switch(op) {
+    case 'contains':    return t.includes(v);
+    case 'notcontains': return !t.includes(v);
+    case 'equals':      return t === v;
+    case 'notequals':   return t !== v;
+    case 'startswith':  return t.startsWith(v);
+    case 'endswith':    return t.endsWith(v);
+    case 'gt':          return !isNaN(n) && !isNaN(nv) ? n > nv : t > v;
+    case 'gte':         return !isNaN(n) && !isNaN(nv) ? n >= nv : t >= v;
+    case 'lt':          return !isNaN(n) && !isNaN(nv) ? n < nv : t < v;
+    case 'lte':         return !isNaN(n) && !isNaN(nv) ? n <= nv : t <= v;
+    case 'blank':       return t === '';
+    case 'notblank':    return t !== '';
+    default:            return true;
+  }
+}
+
+// Filter popup state
+let activeFilterPopup = null;
+
 function addColFilters(tableId) {
   const tbl = document.getElementById(tableId);
   if (!tbl) return;
   const thead = tbl.querySelector('thead');
   if (!thead) return;
-  tbl.querySelectorAll('tr.frow').forEach(r=>r.remove());
+  tbl.querySelectorAll('tr.frow').forEach(r => r.remove());
   const hdrRow = thead.querySelector('tr');
   if (!hdrRow) return;
   if (!COL_FILTERS[tableId]) COL_FILTERS[tableId] = {};
   const frow = document.createElement('tr');
   frow.className = 'frow';
-  Array.from(hdrRow.querySelectorAll('th')).forEach((_,i) => {
+  Array.from(hdrRow.querySelectorAll('th')).forEach((_, i) => {
     const th = document.createElement('th');
     th.onclick = e => e.stopPropagation();
-    const inp = document.createElement('input');
-    inp.type='text'; inp.placeholder='🔍';
-    inp.value = COL_FILTERS[tableId][i] || '';
-    inp.addEventListener('input', () => {
-      COL_FILTERS[tableId][i] = inp.value.toLowerCase().trim();
-      applyColFilters(tableId);
-    });
-    th.appendChild(inp); frow.appendChild(th);
+    th.style.cssText = 'padding:2px 4px;position:relative;';
+    const hasFilter = COL_FILTERS[tableId][i] && COL_FILTERS[tableId][i].val !== '';
+    const btn = document.createElement('button');
+    btn.style.cssText = `width:100%;font-size:.68rem;padding:2px 4px;text-align:left;
+      background:${hasFilter?'rgba(0,180,216,.2)':'var(--card)'};
+      border-color:${hasFilter?'var(--accent)':'var(--border)'};
+      color:${hasFilter?'var(--accent)':'var(--muted)'};`;
+    btn.textContent = hasFilter ? `▼ ${COL_FILTERS[tableId][i].val}` : '▼';
+    btn.title = 'Click to filter this column';
+    btn.onclick = (e) => { e.stopPropagation(); showFilterPopup(tableId, i, btn); };
+    th.appendChild(btn);
+    frow.appendChild(th);
   });
   thead.appendChild(frow);
   requestAnimationFrame(() => {
-    const hh = (hdrRow.getBoundingClientRect().height || 27);
+    const hh = hdrRow.getBoundingClientRect().height || 27;
     frow.querySelectorAll('th').forEach(th => th.style.top = hh + 'px');
   });
+}
+
+function showFilterPopup(tableId, colIdx, anchorBtn) {
+  // Close any open popup
+  if (activeFilterPopup) { activeFilterPopup.remove(); activeFilterPopup = null; }
+
+  const existing = COL_FILTERS[tableId]?.[colIdx] || { op: 'contains', val: '' };
+  const popup = document.createElement('div');
+  popup.style.cssText = `position:fixed;z-index:9999;background:var(--panel);border:1px solid var(--accent);
+    border-radius:8px;padding:12px;box-shadow:0 4px 20px rgba(0,0,0,.5);min-width:220px;`;
+
+  // Position near button
+  const rect = anchorBtn.getBoundingClientRect();
+  const top  = Math.min(rect.bottom + 4, window.innerHeight - 200);
+  const left = Math.min(rect.left, window.innerWidth - 240);
+  popup.style.top  = top  + 'px';
+  popup.style.left = left + 'px';
+
+  // Collect unique values from this column for quick-select
+  const tbl  = document.getElementById(tableId);
+  const vals = new Set();
+  tbl?.querySelectorAll('tbody tr').forEach(tr => {
+    const cell = tr.querySelectorAll('td')[colIdx];
+    if (cell) { const t = cell.textContent.trim(); if (t) vals.add(t); }
+  });
+  const topVals = [...vals].slice(0, 8);
+
+  popup.innerHTML = `
+    <div style="font-size:.75rem;font-weight:700;color:var(--accent);margin-bottom:8px">Filter column</div>
+    <select id="fp-op" style="width:100%;margin-bottom:6px;font-size:.78rem">
+      ${FILTER_OPS.map(o => `<option value="${o.value}" ${existing.op===o.value?'selected':''}>${o.label}</option>`).join('')}
+    </select>
+    <input id="fp-val" type="text" value="${existing.val}" placeholder="Value…" style="width:100%;margin-bottom:8px;font-size:.78rem">
+    ${topVals.length ? `<div style="font-size:.7rem;color:var(--muted);margin-bottom:4px">Quick select:</div>
+    <div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:8px;max-height:60px;overflow-y:auto">
+      ${topVals.map(v=>`<button onclick="document.getElementById('fp-val').value='${v.replace(/'/g,"\\'")}'" 
+        style="font-size:.65rem;padding:1px 6px;background:var(--card)">${v.substring(0,20)}</button>`).join('')}
+    </div>` : ''}
+    <div style="display:flex;gap:6px">
+      <button id="fp-apply" style="flex:1;background:var(--accent);color:#0d1b2a;border-color:var(--accent);font-weight:700;font-size:.78rem">Apply</button>
+      <button id="fp-clear" style="font-size:.78rem">Clear</button>
+      <button id="fp-close" style="font-size:.78rem">✕</button>
+    </div>`;
+
+  document.body.appendChild(popup);
+  activeFilterPopup = popup;
+  document.getElementById('fp-val').focus();
+
+  document.getElementById('fp-apply').onclick = () => {
+    const op  = document.getElementById('fp-op').value;
+    const val = document.getElementById('fp-val').value;
+    if (!COL_FILTERS[tableId]) COL_FILTERS[tableId] = {};
+    COL_FILTERS[tableId][colIdx] = { op, val };
+    applyColFilters(tableId);
+    addColFilters(tableId); // refresh button state
+    popup.remove(); activeFilterPopup = null;
+  };
+  document.getElementById('fp-clear').onclick = () => {
+    if (COL_FILTERS[tableId]) delete COL_FILTERS[tableId][colIdx];
+    applyColFilters(tableId);
+    addColFilters(tableId);
+    popup.remove(); activeFilterPopup = null;
+  };
+  document.getElementById('fp-close').onclick = () => { popup.remove(); activeFilterPopup = null; };
+
+  // Enter key applies
+  document.getElementById('fp-val').onkeydown = e => {
+    if (e.key === 'Enter') document.getElementById('fp-apply').click();
+    if (e.key === 'Escape') { popup.remove(); activeFilterPopup = null; }
+  };
+
+  // Click outside closes
+  setTimeout(() => {
+    document.addEventListener('click', function closePopup(e) {
+      if (!popup.contains(e.target)) {
+        popup.remove(); activeFilterPopup = null;
+        document.removeEventListener('click', closePopup);
+      }
+    });
+  }, 100);
 }
 
 function applyColFilters(tableId) {
@@ -1167,10 +1550,10 @@ function applyColFilters(tableId) {
   Array.from(tbl.querySelector('tbody')?.querySelectorAll('tr') || []).forEach(tr => {
     const cells = tr.querySelectorAll('td');
     let ok = true;
-    Object.entries(filters).forEach(([ci,fv]) => {
-      if (!fv) return;
-      const txt = (cells[+ci]?.textContent||'').toLowerCase();
-      if (!txt.includes(fv)) ok = false;
+    Object.entries(filters).forEach(([ci, f]) => {
+      if (!f || (f.op !== 'blank' && f.op !== 'notblank' && !f.val)) return;
+      const txt = (cells[+ci]?.textContent || '').trim();
+      if (!testFilter(txt, f.op, f.val)) ok = false;
     });
     tr.style.display = ok ? '' : 'none';
   });
@@ -1187,6 +1570,8 @@ function showTab(id, btn) {
   if (id==='shared') renderShared();
   if (id==='po')     renderPO();
   if (id==='summary') buildSummary();
+  if (id==='bom')    renderBOM();
+  if (id==='rawdemand') renderRawDemand();
 }
 
 // ══════════════════════════════════════
