@@ -264,6 +264,7 @@ tbody td{padding:6px 9px;vertical-align:top}
 
   <!-- SHORTAGES -->
   <div id="tab-shortage" class="tab-panel">
+    <div id="sh-subasm-info" style="display:none;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:8px 14px;margin-bottom:10px;font-size:.78rem;color:var(--text)"></div>
     <div class="toolbar">
       <select id="sh-prod" onchange="renderShortage()" style="max-width:260px"></select>
       <input type="text" id="sh-search" placeholder="Search component…" oninput="renderShortage()">
@@ -421,6 +422,8 @@ let ORDERS_BY_PROD = {};  // prod -> [{date,order,qty,type,status}]
 let PROD_DESC = {};       // prod -> description
 let COMP_DESC = {};       // comp -> description
 let COMP_SUPPLIER = {};   // comp -> supplier from BOM
+let SUBASM_BOM = {};      // subAsm -> [{comp,desc,qpa,supplier}]
+let SUBASM_RESULTS = [];  // shortage analysis per sub-assembly
 
 let RESULTS = [];         // allocation results
 let PRIORITY = [];        // ordered list of product IDs
@@ -489,7 +492,7 @@ function parseAll() {
 
   // ── BOM ──
   showLoad('Parsing BOM…');
-  BOM_BY_PROD = {}; PROD_DESC = {}; COMP_DESC = {}; COMP_SUPPLIER = {};
+  BOM_BY_PROD = {}; PROD_DESC = {}; COMP_DESC = {}; COMP_SUPPLIER = {}; SUBASM_BOM = {};
   RAW_BOM_ROWS = [];
   const bomWs = FILES.bom.Sheets['Indented BOM'] || FILES.bom.Sheets[FILES.bom.SheetNames[0]];
   const bomRows = XLSX.utils.sheet_to_json(bomWs, { header:1, defval:null });
@@ -512,6 +515,27 @@ function parseAll() {
       COMP_SUPPLIER[comp] = COMP_SUPPLIER[comp] || supp;
     }
   });
+  // Build sub-assembly component lists from the indented BOM hierarchy
+  { const pByLvl = {};
+    bomRows.slice(1).forEach(r => {
+      const lvl  = parseInt(r[3]||0);
+      const comp = String(r[4]||'').trim();
+      const desc = String(r[5]||'').trim();
+      const qpa  = parseFloat(r[10]||0)||0;
+      const supp = String(r[26]||'').trim();
+      if (!comp) return;
+      pByLvl[lvl] = comp;
+      for (const k of Object.keys(pByLvl)) { if (parseInt(k) > lvl) delete pByLvl[k]; }
+      if (lvl > 1 && qpa > 0) {
+        const par = pByLvl[lvl - 1];
+        if (par) {
+          if (!SUBASM_BOM[par]) SUBASM_BOM[par] = [];
+          if (!SUBASM_BOM[par].some(x => x.comp === comp))
+            SUBASM_BOM[par].push({ comp, desc, qpa, supplier: supp });
+        }
+      }
+    });
+  }
 
   // ── ORDER PLAN ──
   showLoad('Parsing order plan…');
@@ -685,6 +709,7 @@ function runAnalysis() {
       setTimeout(() => {
         try {
           runAllocation();
+          computeSubAsmShortages();
           initUI();
           hideLoad();
         } catch(e) {
@@ -705,6 +730,8 @@ function recalculate() {
   showLoad('Recalculating…');
   setTimeout(() => {
     runAllocation();
+    computeSubAsmShortages();
+    initShortageSelect();
     renderPlan();
     renderShortage();
     renderShared();
@@ -931,16 +958,77 @@ function jumpToShortage(prod) {
 // ══════════════════════════════════════
 // SHORTAGES
 // ══════════════════════════════════════
+function computeSubAsmShortages() {
+  SUBASM_RESULTS = [];
+  // Aggregate demand for each sub-assembly from all products that use it
+  const demand = {}, usedBy = {};
+  RESULTS.forEach(r => {
+    r.bom.forEach(c => {
+      if (!SUBASM_BOM[c.comp]) return;
+      demand[c.comp] = (demand[c.comp]||0) + r.total_qty * c.qpa;
+      if (!usedBy[c.comp]) usedBy[c.comp] = [];
+      usedBy[c.comp].push({ prod: r.prod, qty: Math.round(r.total_qty * c.qpa) });
+    });
+  });
+  Object.entries(demand).forEach(([subAsm, totalDemand]) => {
+    const bom = SUBASM_BOM[subAsm];
+    const stock = INVENTORY[subAsm] || 0;
+    const needToMake = Math.max(0, totalDemand - stock);
+    if (needToMake === 0) return;
+    const compAnalysis = bom.map(c => {
+      const need     = Math.round(needToMake * c.qpa * 10) / 10;
+      const onHand   = INVENTORY[c.comp] || 0;
+      const pos      = (PO_BY_ITEM[c.comp]||[]).slice().sort((a,b)=>a.eta-b.eta);
+      const poAll    = pos.reduce((s,p)=>s+p.qty,0);
+      const shortNow = Math.round(Math.max(0, need - onHand) * 10) / 10;
+      const shortPo  = Math.round(Math.max(0, need - onHand - poAll) * 10) / 10;
+      let cumul = onHand, resDate = null;
+      for (const p of pos) { cumul += p.qty; if (cumul >= need) { resDate = p.eta; break; } }
+      return { ...c, need, onHand, poAll, pos, shortNow, shortPo, resDate, splitLimited: false };
+    });
+    const blocking = compAnalysis.filter(c => c.shortNow > 0);
+    if (!blocking.length) return;
+    SUBASM_RESULTS.push({
+      prod: subAsm, isSubAsm: true,
+      desc: COMP_DESC[subAsm] || '',
+      total_qty: Math.round(totalDemand),
+      needToMake: Math.round(needToMake),
+      stock: Math.round(stock),
+      compAnalysis, blocking, n_blocking: blocking.length,
+      usedBy: usedBy[subAsm] || [],
+    });
+  });
+  SUBASM_RESULTS.sort((a,b) => b.n_blocking - a.n_blocking);
+}
+
 function initShortageSelect() {
   const sel = document.getElementById('sh-prod');
-  sel.innerHTML = RESULTS.filter(r=>r.n_blocking>0).map(r =>
+  const prodOpts = RESULTS.filter(r=>r.n_blocking>0).map(r =>
     `<option value="${r.prod}">${r.prod} — ${r.desc.substring(0,40)} (${r.n_blocking} blocking)</option>`
   ).join('');
+  const subOpts = SUBASM_RESULTS.map(r =>
+    `<option value="${r.prod}">[Sub] ${r.prod} — ${r.desc.substring(0,35)} (${r.n_blocking} blocking)</option>`
+  ).join('');
+  sel.innerHTML = prodOpts +
+    (subOpts ? `<optgroup label="── Sub-Assemblies ──">${subOpts}</optgroup>` : '');
 }
 
 function renderShortage() {
-  const prod = RESULTS.find(r => r.prod === document.getElementById('sh-prod').value);
+  const selVal = document.getElementById('sh-prod').value;
+  const prod = RESULTS.find(r => r.prod === selVal) || SUBASM_RESULTS.find(r => r.prod === selVal);
   if (!prod) return;
+  const infoEl = document.getElementById('sh-subasm-info');
+  if (infoEl) {
+    if (prod.isSubAsm) {
+      const ubStr = prod.usedBy.map(u =>
+        `<span style="color:var(--accent2)">${u.prod}</span><span style="color:var(--muted);font-size:.72rem"> (${u.qty})</span>`
+      ).join(' &nbsp; ');
+      infoEl.innerHTML = `<span style="color:var(--sim);font-weight:700">Sub-Assembly</span> &nbsp;|&nbsp; Total demand: <b>${prod.total_qty}</b> &nbsp;|&nbsp; In stock: <b>${prod.stock}</b> &nbsp;|&nbsp; To make: <b style="color:var(--orange)">${prod.needToMake}</b> &nbsp;|&nbsp; Used by: ${ubStr}`;
+      infoEl.style.display = '';
+    } else {
+      infoEl.style.display = 'none';
+    }
+  }
   const srch = document.getElementById('sh-search').value.toLowerCase();
   const comps = prod.compAnalysis.filter(c =>
     c.shortNow > 0 && (!srch || [c.comp,c.desc,c.supplier||''].join(' ').toLowerCase().includes(srch))
