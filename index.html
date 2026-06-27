@@ -229,6 +229,7 @@ tbody td{padding:6px 9px;vertical-align:top}
             <option value="all">All statuses</option>
             <option value="BLOCKED">Blocked</option>
             <option value="PARTIAL">Partial</option>
+            <option value="ACTIVE OK">Active OK</option>
             <option value="FULL">Full</option>
           </select>
           <select id="plan-type" onchange="renderPlan()">
@@ -244,17 +245,17 @@ tbody td{padding:6px 9px;vertical-align:top}
             <th onclick="psort('flag')" style="width:70px">Priority</th>
             <th onclick="psort('wo_type')" style="width:50px">Type</th>
             <th onclick="psort('prod')" style="width:130px">Product</th>
-            <th onclick="psort('desc')" style="width:220px">Description</th>
-            <th onclick="psort('active_qty')" style="width:75px">Active Qty</th>
-            <th onclick="psort('planned_qty')" style="width:75px">Planned Qty</th>
-            <th onclick="psort('build_now')" style="width:75px">Build Now</th>
-            <th onclick="psort('build_po')" style="width:80px">Build+POs</th>
-            <th onclick="psort('pct_now')" style="width:65px">% Now</th>
-            <th onclick="psort('n_blocking')" style="width:75px">Blocking</th>
+            <th onclick="psort('desc')" style="width:200px">Description</th>
+            <th onclick="psort('active_qty')" style="width:72px">Active Qty</th>
+            <th onclick="psort('buildActiveNow')" style="width:72px">Active Build</th>
+            <th onclick="psort('planned_qty')" style="width:72px">Planned Qty</th>
+            <th onclick="psort('buildPlannedNow')" style="width:72px">Plan Build</th>
+            <th onclick="psort('pctNow')" style="width:65px">% Now</th>
+            <th onclick="psort('n_blocking')" style="width:72px">Blocking</th>
             <th onclick="psort('first_due')" style="width:90px">Req. Date</th>
-            <th onclick="psort('firstSplitDate')" style="width:105px">First Split Date</th>
-            <th onclick="psort('fullProdDate')" style="width:105px">Full Prod. Date</th>
-            <th onclick="psort('status')" style="width:90px">Status</th>
+            <th onclick="psort('firstSplitDate')" style="width:105px">First Split</th>
+            <th onclick="psort('fullProdDate')" style="width:105px">Full Prod.</th>
+            <th onclick="psort('status')" style="width:95px">Status</th>
             <th style="width:160px">Notes</th>
           </tr></thead><tbody id="plan-body"></tbody></table>
         </div>
@@ -264,7 +265,6 @@ tbody td{padding:6px 9px;vertical-align:top}
 
   <!-- SHORTAGES -->
   <div id="tab-shortage" class="tab-panel">
-    <div id="sh-subasm-info" style="display:none;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:8px 14px;margin-bottom:10px;font-size:.78rem;color:var(--text)"></div>
     <div class="toolbar">
       <select id="sh-prod" onchange="renderShortage()" style="max-width:260px"></select>
       <input type="text" id="sh-search" placeholder="Search component…" oninput="renderShortage()">
@@ -272,19 +272,19 @@ tbody td{padding:6px 9px;vertical-align:top}
     </div>
     <div class="tbl-wrap">
       <table id="tbl-shortage"><thead><tr>
-        <th style="width:130px">Component</th>
-        <th style="width:220px">Description</th>
+        <th style="width:160px">Component</th>
+        <th style="width:200px">Description</th>
+        <th style="width:80px">Type/Level</th>
         <th style="width:50px">QPA</th>
-        <th style="width:80px">Need Total</th>
-        <th style="width:80px">On Hand</th>
-        <th style="width:80px">Short Now</th>
-        <th style="width:80px">PO Covers</th>
-        <th style="width:80px">Remaining</th>
-        <th style="width:90px">Split Limit</th>
+        <th style="width:75px">Gross Need</th>
+        <th style="width:75px">Stock</th>
+        <th style="width:75px">SA WO Free</th>
+        <th style="width:75px">Net Short</th>
+        <th style="width:75px">PO Total</th>
+        <th style="width:75px">Remaining</th>
         <th style="width:100px">Resolved By</th>
         <th style="width:150px">Supplier</th>
-        <th style="width:90px">Lead Time</th>
-        <th style="width:200px">Open POs</th>
+        <th style="width:180px">Open POs</th>
         <th style="width:160px">Notes</th>
       </tr></thead><tbody id="sh-body"></tbody></table>
     </div>
@@ -422,8 +422,9 @@ let ORDERS_BY_PROD = {};  // prod -> [{date,order,qty,type,status}]
 let PROD_DESC = {};       // prod -> description
 let COMP_DESC = {};       // comp -> description
 let COMP_SUPPLIER = {};   // comp -> supplier from BOM
-let SUBASM_BOM = {};      // subAsm -> [{comp,desc,qpa,supplier}]
-let SUBASM_RESULTS = [];  // shortage analysis per sub-assembly
+let SA_OPEN_WO = {};      // sub-assembly item -> total open WO receipt qty (active WOs)
+let SA_DEMAND  = {};      // sub-assembly item -> total existing demand from other products' active WOs
+let TOP_PRODUCTS = new Set(); // items that are top-level products (level 0 in BOM)
 
 let RESULTS = [];         // allocation results
 let PRIORITY = [];        // ordered list of product IDs
@@ -472,18 +473,31 @@ function parseAll() {
   });
 
   // ── OPEN POs ──
+  // Column map (auto-detects by header name, falls back to position):
+  // item=0, description=1, order=8, ordered=22, delivered=23, back_order=24,
+  // supplier_name=18, ETA=29, current_planned_receipt_date=31
   showLoad('Parsing open POs…');
   PO_BY_ITEM = {};
   const poWs = FILES.po.Sheets[FILES.po.SheetNames[0]];
   const poRows = XLSX.utils.sheet_to_json(poWs, { header:1, defval:null, raw:false });
-  // col0=item, col25=back_order, col30=current_planned_receipt_date, col19=supplier_name, col8=order, col1=description
+  // Detect column positions from header row
+  const poHdr = (poRows[0]||[]).map(h => String(h||'').toLowerCase().trim());
+  const poCol = name => { const i = poHdr.indexOf(name); return i>=0 ? i : null; };
+  const C_ITEM  = poCol('item')          ?? 0;
+  const C_DESC  = poCol('description')   ?? 1;
+  const C_ORD   = poCol('order')         ?? 8;
+  const C_BACKQ = poCol('back_order')    ?? 24;
+  const C_SUPP  = poCol('supplier_name') ?? 18;
+  // ETA: prefer 'eta' column, fallback to 'current_planned_receipt_date'
+  const C_ETA   = poCol('eta') ?? poCol('current_planned_receipt_date') ?? 29;
+
   poRows.slice(1).forEach(r => {
-    const item = String(r[0] || '').trim();
-    const qty  = parseFloat(r[25] || 0) || 0;
-    const eta  = parseDate(r[30]);
-    const supp = String(r[19] || '').trim();
-    const ord  = String(r[8] || '').trim();
-    const desc = String(r[1] || '').trim();
+    const item = String(r[C_ITEM] || '').trim();
+    const qty  = parseFloat(r[C_BACKQ] || 0) || 0;
+    const eta  = parseDate(r[C_ETA]);
+    const supp = String(r[C_SUPP] || '').trim();
+    const ord  = String(r[C_ORD]  || '').trim();
+    const desc = String(r[C_DESC] || '').trim();
     if (item && qty > 0 && eta) {
       if (!PO_BY_ITEM[item]) PO_BY_ITEM[item] = [];
       PO_BY_ITEM[item].push({ qty, eta, supplier: supp, order: ord, desc });
@@ -492,22 +506,39 @@ function parseAll() {
 
   // ── BOM ──
   showLoad('Parsing BOM…');
-  BOM_BY_PROD = {}; PROD_DESC = {}; COMP_DESC = {}; COMP_SUPPLIER = {}; SUBASM_BOM = {};
+  BOM_BY_PROD = {}; PROD_DESC = {}; COMP_DESC = {}; COMP_SUPPLIER = {};
   RAW_BOM_ROWS = [];
   const bomWs = FILES.bom.Sheets['Indented BOM'] || FILES.bom.Sheets[FILES.bom.SheetNames[0]];
   const bomRows = XLSX.utils.sheet_to_json(bomWs, { header:1, defval:null });
-  RAW_BOM_ROWS = bomRows; // store all rows including header
+  RAW_BOM_ROWS = bomRows;
+  // Detect columns from header
+  const bomHdr = (bomRows[0]||[]).map(h => String(h||'').toLowerCase().trim());
+  const bC = name => { const i = bomHdr.indexOf(name); return i>=0 ? i : null; };
+  const BC_PROD = bC('flat bom #') ?? 0;
+  const BC_PART = bC('part')       ?? 1;
+  const BC_LVL  = bC('level')      ?? 3;
+  const BC_COMP = bC('flat comp')  ?? 4;
+  const BC_DESC = bC('description')?? 5;
+  const BC_SUPP_TYPE = bC('supply type') ?? 6;
+  // QPA: there are two 'Quantity Per' columns — use index 10 (second one = actual QPA)
+  const BC_QPA  = (() => { let count=0; for(let i=0;i<bomHdr.length;i++) { if(bomHdr[i]==='quantity per'){count++;if(count===2)return i;} } return 10; })();
+  const BC_SUPP = bC('supplier')   ?? 26;
+  const BC_ONHAND = bC('on-hand')  ?? 18;
+  const BC_RECEIPTS = bC('receipts') ?? 19;
+  const BC_TDMD = bC('total demand') ?? 17;
+  // col 14 = cumulative, col 15 = unit cost etc — read all for BOM tab
   // col0=FlatBOM#, col3=level, col4=FlatComp, col5=desc, col10=QPA, col26=supplier
   bomRows.slice(1).forEach(r => {
-    const prod = String(r[0] || '').trim();
-    const lvl  = parseInt(r[3] || 0);
-    const comp = String(r[4] || '').trim();
-    const desc = String(r[5] || '').trim();
-    const qpa  = parseFloat(r[10] || 0) || 0;
-    const supp = String(r[26] || '').trim();
+    const prod = String(r[BC_PROD] || '').trim();
+    const lvl  = parseInt(r[BC_LVL] || 0);
+    const comp = String(r[BC_COMP] || '').trim();
+    const desc = String(r[BC_DESC] || '').trim();
+    const qpa  = parseFloat(r[BC_QPA] || 0) || 0;
+    const supp = String(r[BC_SUPP] || '').trim();
     if (!prod || !comp) return;
     if (lvl === 0) {
       PROD_DESC[prod] = desc;
+      TOP_PRODUCTS.add(prod);
     } else if (qpa > 0) {
       if (!BOM_BY_PROD[prod]) BOM_BY_PROD[prod] = [];
       BOM_BY_PROD[prod].push({ comp, desc, qpa, supplier: supp });
@@ -515,55 +546,47 @@ function parseAll() {
       COMP_SUPPLIER[comp] = COMP_SUPPLIER[comp] || supp;
     }
   });
-  // Build sub-assembly component lists from the indented BOM hierarchy
-  { const pByLvl = {};
-    bomRows.slice(1).forEach(r => {
-      const lvl  = parseInt(r[3]||0);
-      const comp = String(r[4]||'').trim();
-      const desc = String(r[5]||'').trim();
-      const qpa  = parseFloat(r[10]||0)||0;
-      const supp = String(r[26]||'').trim();
-      if (!comp) return;
-      pByLvl[lvl] = comp;
-      for (const k of Object.keys(pByLvl)) { if (parseInt(k) > lvl) delete pByLvl[k]; }
-      if (lvl > 1 && qpa > 0) {
-        const par = pByLvl[lvl - 1];
-        if (par) {
-          if (!SUBASM_BOM[par]) SUBASM_BOM[par] = [];
-          if (!SUBASM_BOM[par].some(x => x.comp === comp))
-            SUBASM_BOM[par].push({ comp, desc, qpa, supplier: supp });
-        }
-      }
-    });
-  }
 
   // ── ORDER PLAN ──
   showLoad('Parsing order plan…');
   ORDERS_BY_PROD = {};
+  SA_OPEN_WO = {};
+  SA_DEMAND  = {};
   const ordWs = FILES.order.Sheets[FILES.order.SheetNames[0]];
   const ordRows = XLSX.utils.sheet_to_json(ordWs, { header:1, defval:null, raw:false });
-  RAW_ORDER_ROWS = ordRows; // store all rows including header
-  // col0=date, col1=order, col3=item, col4=order_type, col5=status
-  // col6=demand, col7=sched_receipt, col8=planned_supply, col11=father_item
+  RAW_ORDER_ROWS = ordRows;
+
   ordRows.slice(1).forEach(r => {
     const otype  = String(r[4] || '').trim();
     const father = String(r[11] || '').trim();
     const item   = String(r[3] || '').trim();
-    if (!father || father !== item) return; // only product-level rows
+    if (!item) return;
+
+    // Sub-assembly open WOs: active Production Orders for non-top-products (own WO)
+    if (otype === 'Production Order' && item === father && !TOP_PRODUCTS.has(item)) {
+      const receipt = parseFloat(r[7] || 0) || 0;
+      if (receipt > 0) SA_OPEN_WO[item] = (SA_OPEN_WO[item] || 0) + receipt;
+    }
+
+    // Sub-assembly existing demand: active WO component rows (item != father)
+    if (otype === 'Production Order' && item !== father) {
+      const demand = parseFloat(r[6] || 0) || 0;
+      if (demand > 0) SA_DEMAND[item] = (SA_DEMAND[item] || 0) + demand;
+    }
+
+    // Top-product production orders (item == father, top product)
+    if (father !== item) return;
     if (!['Production Order', 'Planned Production Order'].includes(otype)) return;
     const date   = parseDate(r[0]);
     const order  = String(r[1] || '').trim();
     const status = String(r[5] || '').trim();
     const qty    = otype === 'Production Order'
-                   ? (parseFloat(r[7] || 0) || 0)   // Sched. Receipt
-                   : (parseFloat(r[8] || 0) || 0);  // Planned Supply
+                   ? (parseFloat(r[7] || 0) || 0)
+                   : (parseFloat(r[8] || 0) || 0);
     if (qty <= 0) return;
     if (!ORDERS_BY_PROD[item]) ORDERS_BY_PROD[item] = [];
-    ORDERS_BY_PROD[item].push({
-      date, order, qty, status,
-      type: otype === 'Production Order' ? 'active' : 'planned'
-    });
-    // Ensure product desc
+    ORDERS_BY_PROD[item].push({ date, order, qty, status,
+      type: otype === 'Production Order' ? 'active' : 'planned' });
     if (!PROD_DESC[item] && BOM_BY_PROD[item]) PROD_DESC[item] = '';
   });
 }
@@ -572,15 +595,28 @@ function parseDate(v) {
   if (!v) return null;
   if (v instanceof Date) return isNaN(v) ? null : (v <= EPOCH ? null : v);
   if (typeof v === 'string' && v.trim()) {
-    const parts = v.trim().split(/[\/\-T ]/);
-    if (parts.length >= 3) {
-      // Try YYYY-MM-DD first
-      const d1 = new Date(v.trim().split('T')[0]);
-      if (!isNaN(d1) && d1 > EPOCH) return d1;
-      // Try DD/MM/YYYY
-      const d2 = new Date(`${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`);
-      if (!isNaN(d2) && d2 > EPOCH) return d2;
+    const s = v.trim().split('T')[0]; // strip time part
+    // Try DD/MM/YYYY
+    const dmY = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (dmY) {
+      const d = new Date(`${dmY[3]}-${dmY[2].padStart(2,'0')}-${dmY[1].padStart(2,'0')}`);
+      if (!isNaN(d) && d > EPOCH) return d;
     }
+    // Try YYYY-MM-DD
+    const Ymd = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (Ymd) {
+      const d = new Date(s);
+      if (!isNaN(d) && d > EPOCH) return d;
+    }
+    // Try MM/DD/YYYY
+    const mdY = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (mdY) {
+      const d = new Date(`${mdY[3]}-${mdY[1].padStart(2,'0')}-${mdY[2].padStart(2,'0')}`);
+      if (!isNaN(d) && d > EPOCH) return d;
+    }
+    // Generic fallback
+    const d = new Date(s);
+    if (!isNaN(d) && d > EPOCH) return d;
   }
   return null;
 }
@@ -589,109 +625,203 @@ function parseDate(v) {
 // ALLOCATION ENGINE
 // ══════════════════════════════════════
 function runAllocation() {
-  const pool = { ...INVENTORY };
   RESULTS = [];
 
-  // Sort PRIORITY: Critical first, then Normal, then Low, within each group keep drag order
-  // Skip removed products
   const flagOrder = { critical: 0, normal: 1, low: 2 };
   const sorted = [...PRIORITY]
     .filter(p => !REMOVED.has(p))
     .sort((a, b) => {
-    const fa = flagOrder[FLAGS[a] || 'normal'];
-    const fb = flagOrder[FLAGS[b] || 'normal'];
-    if (fa !== fb) return fa - fb;
-    return PRIORITY.indexOf(a) - PRIORITY.indexOf(b);
+      const fa = flagOrder[FLAGS[a] || 'normal'];
+      const fb = flagOrder[FLAGS[b] || 'normal'];
+      if (fa !== fb) return fa - fb;
+      return PRIORITY.indexOf(a) - PRIORITY.indexOf(b);
+    });
+
+  // ── PASS 1: Allocate to ACTIVE WOs only ──
+  const poolAfterActive = { ...INVENTORY };
+  // Add free sub-assembly WO supply to pool
+  Object.entries(SA_OPEN_WO).forEach(([item, qty]) => {
+    const free = Math.max(0, qty - (SA_DEMAND[item] || 0));
+    if (free > 0) poolAfterActive[item] = (poolAfterActive[item] || 0) + free;
   });
 
+  sorted.forEach(prod => {
+    const bom = BOM_BY_PROD[prod] || [];
+    const orders = ORDERS_BY_PROD[prod] || [];
+    const active_qty = orders.filter(o=>o.type==='active').reduce((s,o)=>s+o.qty,0);
+    if (active_qty <= 0 || !bom.length) return;
+    bom.forEach(c => {
+      const splitLim   = SPLIT_LIMITS[c.comp];
+      const needActive = splitLim > 0 ? Math.min(active_qty * c.qpa, splitLim) : active_qty * c.qpa;
+      const alloc      = Math.min(poolAfterActive[c.comp] || 0, needActive);
+      poolAfterActive[c.comp] = Math.max(0, (poolAfterActive[c.comp] || 0) - alloc);
+    });
+  });
+
+  // ── PASS 2: From remaining stock, allocate to PLANNED demand ──
+  const poolAfterPlanned = { ...poolAfterActive };
+  sorted.forEach(prod => {
+    const bom = BOM_BY_PROD[prod] || [];
+    const orders = ORDERS_BY_PROD[prod] || [];
+    const planned_qty = orders.filter(o=>o.type==='planned').reduce((s,o)=>s+o.qty,0);
+    if (planned_qty <= 0 || !bom.length) return;
+    bom.forEach(c => {
+      const splitLim    = SPLIT_LIMITS[c.comp];
+      const needPlanned = splitLim > 0 ? Math.min(planned_qty * c.qpa, splitLim) : planned_qty * c.qpa;
+      const alloc       = Math.min(poolAfterPlanned[c.comp] || 0, needPlanned);
+      poolAfterPlanned[c.comp] = Math.max(0, (poolAfterPlanned[c.comp] || 0) - alloc);
+    });
+  });
+
+  // ── PASS 3: Build per-product results using the two pools ──
   sorted.forEach((prod, idx) => {
     const bom    = BOM_BY_PROD[prod] || [];
-    const orders = (ORDERS_BY_PROD[prod] || []).slice().sort((a,b) => (a.date||new Date(9999,0,1)) - (b.date||new Date(9999,0,1)));
-    const active_qty  = orders.filter(o=>o.type==='active').reduce((s,o)=>s+o.qty,0);
-    const planned_qty = orders.filter(o=>o.type==='planned').reduce((s,o)=>s+o.qty,0);
-    const total_qty   = active_qty + planned_qty;
-    const first_due   = orders.find(o=>o.date)?.date || null;
+    const orders = (ORDERS_BY_PROD[prod] || []).slice().sort((a,b)=>(a.date||new Date(9999,0,1))-(b.date||new Date(9999,0,1)));
+    const active_qty   = orders.filter(o=>o.type==='active').reduce((s,o)=>s+o.qty,0);
+    const planned_qty  = orders.filter(o=>o.type==='planned').reduce((s,o)=>s+o.qty,0);
+    const total_qty    = active_qty + planned_qty;
+    const first_due          = orders.find(o=>o.date)?.date || null;
+    const first_active_due   = orders.find(o=>o.type==='active'  && o.date)?.date || null;
+    const first_planned_due  = orders.find(o=>o.type==='planned' && o.date)?.date || null;
 
     const compAnalysis = bom.map(c => {
-      const need    = total_qty * c.qpa;
-      // Apply split limit: cap how much of this component this product can use
-      const splitLim = SPLIT_LIMITS[c.comp];
-      const needCapped = splitLim > 0 ? Math.min(need, splitLim) : need;
-      const onHand  = pool[c.comp] || 0;
-      // POs arriving before first_due
-      const pos     = (PO_BY_ITEM[c.comp] || []).sort((a,b)=>a.eta-b.eta);
-      const poBefore= pos.filter(p => !first_due || p.eta <= first_due).reduce((s,p)=>s+p.qty,0);
-      const poAll   = pos.reduce((s,p)=>s+p.qty,0);
-      const buildNow   = c.qpa > 0 ? Math.floor(onHand / c.qpa) : 0;
-      const buildPoDue = c.qpa > 0 ? Math.floor((onHand + poBefore) / c.qpa) : 0;
-      const buildPoAll = c.qpa > 0 ? Math.floor((onHand + poAll) / c.qpa) : 0;
-      const shortNow   = Math.max(0, needCapped - onHand);
-      const shortPo    = Math.max(0, needCapped - onHand - poBefore);
-      // Resolution date
-      let cumul = onHand; let resDate = null;
-      for (const p of pos) {
-        cumul += p.qty;
-        if (cumul >= needCapped) { resDate = p.eta; break; }
-      }
-      return { ...c, need: Math.round(needCapped*10)/10, need_uncapped: Math.round(need*10)/10,
-               splitLimited: splitLim > 0 && needCapped < need,
-               onHand, poBefore, poAll,
-               buildNow, buildPoDue, buildPoAll,
-               shortNow: Math.round(shortNow*10)/10,
-               shortPo:  Math.round(shortPo*10)/10,
-               resDate, pos };
+      const splitLim    = SPLIT_LIMITS[c.comp];
+      const needActive  = active_qty  * c.qpa;
+      const needPlanned = planned_qty * c.qpa;
+      const needTotal   = needActive + needPlanned;
+      const needCapped  = splitLim > 0 ? Math.min(needTotal, splitLim) : needTotal;
+
+      // Available stock = on-hand inventory
+      const onHand = INVENTORY[c.comp] || 0;
+
+      // Sub-assembly unallocated supply:
+      // Open WOs for this component (already in production)
+      // minus existing demand already allocated to other products' active WOs
+      const saOpenWO    = SA_OPEN_WO[c.comp]  || 0;
+      const saExisting  = SA_DEMAND[c.comp]   || 0;
+      const saFree      = Math.max(0, saOpenWO - saExisting); // unallocated WO supply
+      // Note: saFree is sub-assembly supply already in production that isn't spoken for
+
+      // Effective on-hand for this product = stock + free sub-assembly WO supply
+      const effectiveOnHand = onHand + saFree;
+
+      const pos    = (PO_BY_ITEM[c.comp] || []).sort((a,b) => a.eta - b.eta);
+      const poAll  = pos.reduce((s,p) => s+p.qty, 0);
+      const poBeforeActive  = pos.filter(p=>!first_active_due  || p.eta<=first_active_due).reduce((s,p)=>s+p.qty,0);
+      const poBeforePlanned = pos.filter(p=>!first_planned_due || p.eta<=first_planned_due).reduce((s,p)=>s+p.qty,0);
+
+      // Active: uses effective on-hand (stock + free SA WO supply)
+      const buildActiveNow    = c.qpa>0 ? Math.floor(effectiveOnHand/c.qpa) : 0;
+      const buildActiveWithPO = c.qpa>0 ? Math.floor((effectiveOnHand+poBeforeActive)/c.qpa) : 0;
+      const shortActive       = Math.max(0, needActive - effectiveOnHand);
+      const shortActivePO     = Math.max(0, needActive - effectiveOnHand - poBeforeActive);
+
+      // Planned: stock remaining after active allocation
+      const stockAfterActive    = Math.max(0, effectiveOnHand - needActive);
+      const buildPlannedNow     = c.qpa>0 ? Math.floor(stockAfterActive/c.qpa) : 0;
+      const buildPlannedWithPO  = c.qpa>0 ? Math.floor((stockAfterActive+poBeforePlanned)/c.qpa) : 0;
+      const shortPlanned        = Math.max(0, needPlanned - stockAfterActive);
+      const shortPlannedPO      = Math.max(0, needPlanned - stockAfterActive - poBeforePlanned);
+
+      // Combined
+      const buildNow   = c.qpa>0 ? Math.floor(effectiveOnHand/c.qpa) : 0;
+      const buildPoDue = c.qpa>0 ? Math.floor((effectiveOnHand+poBeforeActive)/c.qpa) : 0;
+      const buildPoAll = c.qpa>0 ? Math.floor((effectiveOnHand+poAll)/c.qpa) : 0;
+      const shortNow   = Math.max(0, needCapped - effectiveOnHand);
+
+      // Resolution date (accounts for SA WO supply)
+      let cumul = effectiveOnHand; let resDate = null;
+      for (const p of pos) { cumul += p.qty; if (cumul >= needCapped) { resDate=p.eta; break; } }
+
+      return {
+        ...c,
+        need: Math.round(needCapped*10)/10,
+        need_active:  Math.round(needActive*10)/10,
+        need_planned: Math.round(needPlanned*10)/10,
+        splitLimited: splitLim>0 && needCapped<needTotal,
+        onHand, saOpenWO, saExisting, saFree, effectiveOnHand,
+        poBeforeActive, poBeforePlanned, poAll,
+        buildActiveNow, buildActiveWithPO,
+        shortActive:   Math.round(shortActive*10)/10,
+        shortActivePO: Math.round(shortActivePO*10)/10,
+        buildPlannedNow, buildPlannedWithPO,
+        shortPlanned:  Math.round(shortPlanned*10)/10,
+        shortPlannedPO:Math.round(shortPlannedPO*10)/10,
+        buildNow, buildPoDue, buildPoAll,
+        shortNow: Math.round(shortNow*10)/10,
+        resDate, pos,
+        isSA: saOpenWO > 0 || saExisting > 0, // flag as sub-assembly
+      };
     });
 
-    const buildNow   = compAnalysis.length ? Math.min(...compAnalysis.map(c=>c.buildNow))   : 0;
-    const buildPoDue = compAnalysis.length ? Math.min(...compAnalysis.map(c=>c.buildPoDue)) : 0;
-    const buildPoAll = compAnalysis.length ? Math.min(...compAnalysis.map(c=>c.buildPoAll)) : 0;
-    const blocking   = compAnalysis.filter(c=>c.shortNow>0);
-    const pctNow     = total_qty > 0 ? Math.round(buildNow / total_qty * 100) : (bom.length ? 100 : 0);
-    const pctPo      = total_qty > 0 ? Math.round(buildPoDue / total_qty * 100) : 0;
-    let status = buildNow >= total_qty ? 'FULL' : buildNow > 0 ? 'PARTIAL' : 'BLOCKED';
-    if (!bom.length) status = 'NO BOM';
+    // Product-level metrics
+    const buildActiveNow    = active_qty>0  && compAnalysis.length ? Math.min(active_qty,  Math.min(...compAnalysis.map(c=>c.buildActiveNow)))    : 0;
+    const buildActiveWithPO = active_qty>0  && compAnalysis.length ? Math.min(active_qty,  Math.min(...compAnalysis.map(c=>c.buildActiveWithPO)))  : 0;
+    const buildPlannedNow   = planned_qty>0 && compAnalysis.length ? Math.min(planned_qty, Math.min(...compAnalysis.map(c=>c.buildPlannedNow)))   : 0;
+    const buildPlannedWithPO= planned_qty>0 && compAnalysis.length ? Math.min(planned_qty, Math.min(...compAnalysis.map(c=>c.buildPlannedWithPO))): 0;
+    const buildNow   = buildActiveNow   + buildPlannedNow;
+    const buildPoDue = buildActiveWithPO + buildPlannedWithPO;
+    const buildPoAll = compAnalysis.length ? Math.min(total_qty, Math.min(...compAnalysis.map(c=>c.buildPoAll))) : 0;
 
-    // Consume from shared pool
-    compAnalysis.forEach(c => {
-      const alloc = Math.min(pool[c.comp] || 0, c.need);
-      pool[c.comp] = Math.max(0, (pool[c.comp] || 0) - alloc);
-    });
+    const blockingActive  = compAnalysis.filter(c=>c.shortActive>0);
+    const blockingPlanned = compAnalysis.filter(c=>c.shortPlanned>0);
+    const blocking        = [...new Set([...blockingActive,...blockingPlanned])];
 
-    // ── Date calculations ──
-    // Collect all unique PO ETA dates across all components of this product
+    const pctNow        = total_qty>0 ? Math.round(buildNow/total_qty*100) : (bom.length?100:0);
+    const pctPo         = total_qty>0 ? Math.round(buildPoDue/total_qty*100) : 0;
+    const pctActiveNow  = active_qty>0  ? Math.round(buildActiveNow/active_qty*100)   : 100;
+    const pctPlannedNow = planned_qty>0 ? Math.round(buildPlannedNow/planned_qty*100) : 100;
+
+    let status;
+    if (!bom.length)                                                  status = 'NO BOM';
+    else if (buildActiveNow>=active_qty && buildPlannedNow>=planned_qty) status = 'FULL';
+    else if (buildActiveNow>=active_qty && planned_qty>0)             status = 'ACTIVE OK';
+    else if (buildActiveNow>0)                                        status = 'PARTIAL';
+    else                                                              status = 'BLOCKED';
+
+    // Date calculations
     const allEtaDates = new Set([TODAY.getTime()]);
     bom.forEach(c => (PO_BY_ITEM[c.comp]||[]).forEach(p => allEtaDates.add(p.eta.getTime())));
-    const etaSorted = [...allEtaDates].map(t => new Date(t)).sort((a,b)=>a-b);
+    const etaSorted = [...allEtaDates].map(t=>new Date(t)).sort((a,b)=>a-b);
 
-    let firstSplitDate = null, fullProdDate = null;
+    let firstSplitDate=null, fullProdDate=null;
     for (const checkDate of etaSorted) {
-      let maxBuild = Infinity;
+      let maxA=Infinity, maxP=Infinity;
       for (const c of bom) {
-        const stock   = pool[c.comp] || 0;  // use current pool (post-allocation)
-        const poAvail = (PO_BY_ITEM[c.comp]||[]).filter(p=>p.eta<=checkDate).reduce((s,p)=>s+p.qty,0);
-        const avail   = stock + poAvail;
-        const buildable = c.qpa > 0 ? Math.floor(avail / c.qpa) : 0;
-        maxBuild = Math.min(maxBuild, buildable);
+        const stock    = INVENTORY[c.comp]||0;
+        const saFree   = Math.max(0, (SA_OPEN_WO[c.comp]||0) - (SA_DEMAND[c.comp]||0));
+        const poAvail  = (PO_BY_ITEM[c.comp]||[]).filter(p=>p.eta<=checkDate).reduce((s,p)=>s+p.qty,0);
+        const avail    = stock + saFree + poAvail;
+        const needA    = active_qty * c.qpa;
+        const leftForPlan = Math.max(0, avail - needA);
+        maxA = Math.min(maxA, c.qpa>0 ? Math.floor(avail/c.qpa) : 0);
+        maxP = Math.min(maxP, c.qpa>0 ? Math.floor(leftForPlan/c.qpa) : 0);
       }
-      if (maxBuild >= 1 && !firstSplitDate) firstSplitDate = checkDate;
-      if (maxBuild >= total_qty && !fullProdDate) { fullProdDate = checkDate; break; }
+      const totalBuildable = Math.min(maxA, active_qty||0) + Math.min(maxP, planned_qty||0);
+      if (totalBuildable>=1 && !firstSplitDate) firstSplitDate=checkDate;
+      if (maxA>=active_qty && maxP>=planned_qty && !fullProdDate) { fullProdDate=checkDate; break; }
     }
-    if (firstSplitDate && firstSplitDate <= TODAY) firstSplitDate = TODAY; // already achievable
+    if (firstSplitDate && firstSplitDate<=TODAY) firstSplitDate=TODAY;
 
     RESULTS.push({
-      prod, rank: idx + 1,
-      desc: PROD_DESC[prod] || '',
-      flag: FLAGS[prod] || 'normal',
+      prod, rank: idx+1,
+      desc: PROD_DESC[prod]||'',
+      flag: FLAGS[prod]||'normal',
       active_qty, planned_qty, total_qty,
-      first_due, orders,
+      first_due, first_active_due, first_planned_due, orders,
       bom, compAnalysis,
       buildNow, buildPoDue, buildPoAll,
-      blocking, n_blocking: blocking.length,
-      pctNow, pctPo, status,
-      firstSplitDate, fullProdDate,
+      buildActiveNow, buildActiveWithPO,
+      buildPlannedNow, buildPlannedWithPO,
+      blocking, blockingActive, blockingPlanned,
+      n_blocking: blockingActive.length,
+      n_blocking_planned: blockingPlanned.length,
+      pctNow, pctPo, pctActiveNow, pctPlannedNow,
+      status, firstSplitDate, fullProdDate,
     });
   });
 }
+
 
 // ══════════════════════════════════════
 // RUN ANALYSIS
@@ -709,7 +839,6 @@ function runAnalysis() {
       setTimeout(() => {
         try {
           runAllocation();
-          try { computeSubAsmShortages(); } catch(e) { SUBASM_RESULTS = []; console.error('SubAsm error:', e); }
           initUI();
           hideLoad();
         } catch(e) {
@@ -726,12 +855,99 @@ function runAnalysis() {
   }, 50);
 }
 
+// ══════════════════════════════════════
+// RECURSIVE BOM TREE + NET REQUIREMENTS
+// ══════════════════════════════════════
+
+// Build hierarchical BOM tree from flat indented rows for a given product
+function buildBOMTree(prod) {
+  const rows = RAW_BOM_ROWS.slice(1).filter(r => String(r[0]||'').trim() === prod);
+  const bh   = (RAW_BOM_ROWS[0]||[]).map(h => String(h||'').toLowerCase().trim());
+  const bci  = n => { const i=bh.indexOf(n); return i>=0?i:null; };
+  const BL   = bci('level')??3, BC=bci('flat comp')??4, BD=bci('description')??5;
+  const BQPA = (()=>{ let c=0; for(let i=0;i<bh.length;i++){ if(bh[i]==='quantity per'){c++;if(c===2)return i;} } return 10; })();
+  const BS   = bci('supply type')??6, BSUPP=bci('supplier')??26;
+
+  const nodes = [];
+  for (const r of rows) {
+    const lvl = parseInt(r[BL]||0);
+    if (lvl === 0) continue;
+    const qpa = parseFloat(r[BQPA]||0)||0;
+    if (qpa <= 0) continue;
+    nodes.push({
+      comp: String(r[BC]||'').trim(), desc: String(r[BD]||'').trim(),
+      qpa, lvl, stype: String(r[BS]||'').trim(), supplier: String(r[BSUPP]||'').trim(),
+      children: []
+    });
+  }
+
+  // Reconstruct tree from level sequence
+  const root = [];
+  const stack = []; // [{lvl, node}]
+  for (const node of nodes) {
+    while (stack.length && stack[stack.length-1].lvl >= node.lvl) stack.pop();
+    if (stack.length) stack[stack.length-1].node.children.push(node);
+    else root.push(node);
+    stack.push({ lvl: node.lvl, node });
+  }
+  return root;
+}
+
+// Walk tree recursively, net each node against supply, return shortage nodes
+function netRequirements(tree, parentDemand) {
+  const shortages = [];
+  for (const node of tree) {
+    const gross   = parentDemand * node.qpa;
+    const stock   = INVENTORY[node.comp] || 0;
+    const saFree  = Math.max(0, (SA_OPEN_WO[node.comp]||0) - (SA_DEMAND[node.comp]||0));
+    const poAll   = (PO_BY_ITEM[node.comp]||[]).reduce((s,p)=>s+p.qty,0);
+    const avail   = stock + saFree;
+    const net     = Math.max(0, gross - avail);
+    const netWithPO = Math.max(0, gross - avail - poAll);
+
+    if (net <= 0) continue; // enough supply — no shortage here
+
+    const enriched = {
+      ...node,
+      gross: Math.round(gross*10)/10,
+      stock, saFree, avail, poAll,
+      net:        Math.round(net*10)/10,
+      netWithPO:  Math.round(netWithPO*10)/10,
+      pos:        (PO_BY_ITEM[node.comp]||[]).sort((a,b)=>a.eta-b.eta),
+      // Resolution date
+      resDate: (() => {
+        let cumul = avail;
+        for (const p of (PO_BY_ITEM[node.comp]||[]).sort((a,b)=>a.eta-b.eta)) {
+          cumul += p.qty; if (cumul >= gross) return p.eta;
+        }
+        return null;
+      })(),
+    };
+
+    if (node.children.length > 0) {
+      // Sub-assembly is short — recurse. Demand for children = net units of this SA
+      const childUnits = node.qpa > 0 ? net / node.qpa : net;
+      const childShortages = netRequirements(node.children, childUnits);
+      enriched.childShortages = childShortages;
+      enriched.isSA = true;
+      // A SA is truly blocking only if it has child shortages too
+      enriched.isBlocking = childShortages.length > 0 || net > 0;
+      shortages.push(enriched);
+    } else {
+      enriched.childShortages = [];
+      enriched.isSA = false;
+      enriched.isBlocking = true;
+      shortages.push(enriched);
+    }
+  }
+  return shortages;
+}
+
+
 function recalculate() {
   showLoad('Recalculating…');
   setTimeout(() => {
     runAllocation();
-    try { computeSubAsmShortages(); } catch(e) { SUBASM_RESULTS = []; console.error('SubAsm error:', e); }
-    initShortageSelect();
     renderPlan();
     renderShortage();
     renderShared();
@@ -900,47 +1116,58 @@ function renderPlan() {
     return planSortDir*((va||0)-(vb||0));
   });
 
-  const stBadge = {BLOCKED:'b-blocked',PARTIAL:'b-partial',FULL:'b-full','NO BOM':'b-info'};
-  const flagBadge = {critical:'🔴 Critical',normal:'🔵 Normal',low:'🟡 Low'};
-  const progC = pct => pct>=100?'var(--green)':pct>=50?'var(--orange)':'var(--red)';
+    const stBadge = {
+      BLOCKED:    'b-blocked',
+      PARTIAL:    'b-partial',
+      'ACTIVE OK':'b-info',
+      FULL:       'b-full',
+      'NO BOM':   'b-info'
+    };
+    const flagBadge = {critical:'🔴 Critical',normal:'🔵 Normal',low:'🟡 Low'};
+    const progC = pct => pct>=100?'var(--green)':pct>=50?'var(--orange)':'var(--red)';
 
-  document.getElementById('plan-body').innerHTML = rows.map(r => {
-    const pct = r.pctNow;
-    const dc  = !r.first_due ? 'var(--muted)' : daysDiff(r.first_due)<0 ? 'var(--red)' : daysDiff(r.first_due)<14 ? 'var(--orange)' : 'var(--muted)';
-    const hasAct = r.orders.some(o=>o.type==='active');
-    const hasSim = r.orders.some(o=>o.type==='planned');
-    const woTag  = hasAct && hasSim
-      ? `<span class="b-act-s">ACT</span> <span class="b-sim-s">SIM</span>`
-      : hasAct ? `<span class="b-act-s">ACT</span>`
-      : hasSim ? `<span class="b-sim-s">SIM</span>` : '—';
-    const noteKey = `plan_${r.prod}`;
-    const noteVal = (NOTES[noteKey]||'').replace(/"/g,'&quot;');
-    return `<tr style="cursor:pointer">
-      <td onclick="jumpToShortage('${r.prod}')" style="color:var(--muted);font-size:.72rem">${r.rank}</td>
-      <td onclick="jumpToShortage('${r.prod}')"><span style="font-size:.72rem">${flagBadge[r.flag||'normal']}</span></td>
-      <td onclick="jumpToShortage('${r.prod}')">${woTag}</td>
-      <td onclick="jumpToShortage('${r.prod}')" style="font-weight:700;color:var(--accent2);font-size:.8rem">${r.prod}</td>
-      <td onclick="jumpToShortage('${r.prod}')"><span class="trunc" title="${r.desc}">${r.desc||'—'}</span></td>
-      <td onclick="jumpToShortage('${r.prod}')" style="text-align:right;color:var(--accent)">${r.active_qty||'—'}</td>
-      <td onclick="jumpToShortage('${r.prod}')" style="text-align:right;color:var(--sim)">${r.planned_qty||'—'}</td>
-      <td onclick="jumpToShortage('${r.prod}')" style="text-align:right;font-weight:700;color:${r.buildNow>0?'var(--green)':'var(--red)'}">${r.buildNow}</td>
-      <td onclick="jumpToShortage('${r.prod}')" style="text-align:right;color:${r.buildPoDue>=r.total_qty?'var(--green)':'var(--orange)'}">${r.buildPoDue}</td>
-      <td onclick="jumpToShortage('${r.prod}')">
-        <div class="prog"><div class="prog-f" style="width:${pct}%;background:${progC(pct)}"></div></div>
-        <span style="font-size:.72rem;color:${progC(pct)};margin-left:4px">${pct}%</span>
-      </td>
-      <td onclick="jumpToShortage('${r.prod}')" style="text-align:right;color:${r.n_blocking>0?'var(--red)':'var(--green)'};font-weight:${r.n_blocking>0?700:400}">${r.n_blocking}</td>
-      <td onclick="jumpToShortage('${r.prod}')" style="color:${dc};font-size:.78rem">${fd(r.first_due)}</td>
-      <td onclick="jumpToShortage('${r.prod}')" style="font-size:.78rem;font-weight:600;color:${r.firstSplitDate?(r.firstSplitDate<=TODAY?'var(--green)':daysDiff(r.firstSplitDate)<=30?'var(--orange)':'var(--muted)'):'var(--red)'}">${r.firstSplitDate?fd(r.firstSplitDate):'—'}</td>
-      <td onclick="jumpToShortage('${r.prod}')" style="font-size:.78rem;font-weight:600;color:${r.fullProdDate?(r.fullProdDate<=TODAY?'var(--green)':daysDiff(r.fullProdDate)<=30?'var(--orange)':'var(--muted)'):'var(--red)'}">${r.fullProdDate?fd(r.fullProdDate):'—'}</td>
-      <td onclick="jumpToShortage('${r.prod}')"><span class="badge ${stBadge[r.status]||'b-info'}">${r.status}</span></td>
-      <td onclick="event.stopPropagation()">
-        <input class="notes-input" type="text" value="${noteVal}" placeholder="Add note…"
-          data-key="${noteKey}" onchange="NOTES[this.dataset.key]=this.value"
-          onfocus="this.style.borderBottomColor='var(--accent)'"
-          onblur="this.style.borderBottomColor='var(--border)'">
-      </td>
-    </tr>`;
+    document.getElementById('plan-body').innerHTML = rows.map(r => {
+      const pct = r.pctNow;
+      const dc  = !r.first_due ? 'var(--muted)' : daysDiff(r.first_due)<0 ? 'var(--red)' : daysDiff(r.first_due)<14 ? 'var(--orange)' : 'var(--muted)';
+      const hasAct = r.orders.some(o=>o.type==='active');
+      const hasSim = r.orders.some(o=>o.type==='planned');
+      const woTag  = hasAct && hasSim
+        ? `<span class="b-act-s">ACT</span> <span class="b-sim-s">SIM</span>`
+        : hasAct ? `<span class="b-act-s">ACT</span>`
+        : hasSim ? `<span class="b-sim-s">SIM</span>` : '—';
+      const noteKey = `plan_${r.prod}`;
+      const noteVal = (NOTES[noteKey]||'').replace(/"/g,'&quot;');
+      // Active build color: green=full, orange=partial, red=zero
+      const actC  = r.active_qty===0  ? 'var(--muted)' : r.buildActiveNow>=r.active_qty   ? 'var(--green)' : r.buildActiveNow>0  ? 'var(--orange)' : 'var(--red)';
+      const planC = r.planned_qty===0 ? 'var(--muted)' : r.buildPlannedNow>=r.planned_qty ? 'var(--green)' : r.buildPlannedNow>0 ? 'var(--orange)' : 'var(--red)';
+      const fsC   = !r.firstSplitDate ? 'var(--red)' : r.firstSplitDate<=TODAY ? 'var(--green)' : daysDiff(r.firstSplitDate)<=30 ? 'var(--orange)' : 'var(--muted)';
+      const fpC   = !r.fullProdDate   ? 'var(--red)' : r.fullProdDate<=TODAY   ? 'var(--green)' : daysDiff(r.fullProdDate)<=30   ? 'var(--orange)' : 'var(--muted)';
+      return `<tr style="cursor:pointer">
+        <td onclick="jumpToShortage('${r.prod}')" style="color:var(--muted);font-size:.72rem">${r.rank}</td>
+        <td onclick="jumpToShortage('${r.prod}')"><span style="font-size:.72rem">${flagBadge[r.flag||'normal']}</span></td>
+        <td onclick="jumpToShortage('${r.prod}')">${woTag}</td>
+        <td onclick="jumpToShortage('${r.prod}')" style="font-weight:700;color:var(--accent2);font-size:.8rem">${r.prod}</td>
+        <td onclick="jumpToShortage('${r.prod}')"><span class="trunc" title="${r.desc}">${r.desc||'—'}</span></td>
+        <td onclick="jumpToShortage('${r.prod}')" style="text-align:right;color:var(--accent)">${r.active_qty||'—'}</td>
+        <td onclick="jumpToShortage('${r.prod}')" style="text-align:right;font-weight:700;color:${actC}" title="Active WO: can build ${r.buildActiveNow} of ${r.active_qty} from stock">${r.active_qty?r.buildActiveNow:'—'}</td>
+        <td onclick="jumpToShortage('${r.prod}')" style="text-align:right;color:var(--sim)">${r.planned_qty||'—'}</td>
+        <td onclick="jumpToShortage('${r.prod}')" style="text-align:right;font-weight:700;color:${planC}" title="Planned: can build ${r.buildPlannedNow} of ${r.planned_qty} from stock after active allocation">${r.planned_qty?r.buildPlannedNow:'—'}</td>
+        <td onclick="jumpToShortage('${r.prod}')">
+          <div class="prog"><div class="prog-f" style="width:${pct}%;background:${progC(pct)}"></div></div>
+          <span style="font-size:.72rem;color:${progC(pct)};margin-left:4px">${pct}%</span>
+        </td>
+        <td onclick="jumpToShortage('${r.prod}')" style="text-align:right;color:${r.n_blocking>0?'var(--red)':'var(--green)'};font-weight:${r.n_blocking>0?700:400}">${r.n_blocking}</td>
+        <td onclick="jumpToShortage('${r.prod}')" style="color:${dc};font-size:.78rem">${fd(r.first_due)}</td>
+        <td onclick="jumpToShortage('${r.prod}')" style="font-size:.78rem;font-weight:600;color:${fsC}">${r.firstSplitDate?fd(r.firstSplitDate):'—'}</td>
+        <td onclick="jumpToShortage('${r.prod}')" style="font-size:.78rem;font-weight:600;color:${fpC}">${r.fullProdDate?fd(r.fullProdDate):'—'}</td>
+        <td onclick="jumpToShortage('${r.prod}')"><span class="badge ${stBadge[r.status]||'b-info'}">${r.status}</span></td>
+        <td onclick="event.stopPropagation()">
+          <input class="notes-input" type="text" value="${noteVal}" placeholder="Add note…"
+            data-key="${noteKey}" onchange="NOTES[this.dataset.key]=this.value"
+            onfocus="this.style.borderBottomColor='var(--accent)'"
+            onblur="this.style.borderBottomColor='var(--border)'">
+        </td>
+      </tr>`;
   }).join('');
   addColFilters('tbl-plan');
 }
@@ -951,130 +1178,149 @@ function jumpToShortage(prod) {
     if (sel.options[i].value===prod) { sel.selectedIndex=i; break; }
   }
   renderShortage();
-  document.querySelector('.tab-btn[onclick*="shortage"]').click();
+  const shortBtn = document.querySelector('.tab-btn[onclick*="shortage"]');
+  if (shortBtn) { showTab('shortage', shortBtn); shortBtn.classList.add('active'); }
   toast('Shortages for ' + prod);
 }
 
 // ══════════════════════════════════════
 // SHORTAGES
 // ══════════════════════════════════════
-function computeSubAsmShortages() {
-  SUBASM_RESULTS = [];
-  // Aggregate demand for each sub-assembly from all products that use it
-  const demand = {}, usedBy = {};
-  RESULTS.forEach(r => {
-    r.bom.forEach(c => {
-      if (!SUBASM_BOM[c.comp]) return;
-      demand[c.comp] = (demand[c.comp]||0) + r.total_qty * c.qpa;
-      if (!usedBy[c.comp]) usedBy[c.comp] = [];
-      usedBy[c.comp].push({ prod: r.prod, qty: Math.round(r.total_qty * c.qpa) });
-    });
-  });
-  Object.entries(demand).forEach(([subAsm, totalDemand]) => {
-    const bom = SUBASM_BOM[subAsm];
-    const stock = INVENTORY[subAsm] || 0;
-    const needToMake = Math.max(0, totalDemand - stock);
-    if (needToMake === 0) return;
-    const compAnalysis = bom.map(c => {
-      const need     = Math.round(needToMake * c.qpa * 10) / 10;
-      const onHand   = INVENTORY[c.comp] || 0;
-      const pos      = (PO_BY_ITEM[c.comp]||[]).slice().sort((a,b)=>a.eta-b.eta);
-      const poAll    = pos.reduce((s,p)=>s+p.qty,0);
-      const shortNow = Math.round(Math.max(0, need - onHand) * 10) / 10;
-      const shortPo  = Math.round(Math.max(0, need - onHand - poAll) * 10) / 10;
-      let cumul = onHand, resDate = null;
-      for (const p of pos) { cumul += p.qty; if (cumul >= need) { resDate = p.eta; break; } }
-      return { ...c, need, onHand, poAll, pos, shortNow, shortPo, resDate, splitLimited: false };
-    });
-    const blocking = compAnalysis.filter(c => c.shortNow > 0);
-    if (!blocking.length) return;
-    SUBASM_RESULTS.push({
-      prod: subAsm, isSubAsm: true,
-      desc: COMP_DESC[subAsm] || '',
-      total_qty: Math.round(totalDemand),
-      needToMake: Math.round(needToMake),
-      stock: Math.round(stock),
-      compAnalysis, blocking, n_blocking: blocking.length,
-      usedBy: usedBy[subAsm] || [],
-    });
-  });
-  SUBASM_RESULTS.sort((a,b) => b.n_blocking - a.n_blocking);
-}
-
 function initShortageSelect() {
   const sel = document.getElementById('sh-prod');
-  const prodOpts = RESULTS.filter(r=>r.n_blocking>0).map(r =>
-    `<option value="${r.prod}">${r.prod} — ${r.desc.substring(0,40)} (${r.n_blocking} blocking)</option>`
+  sel.innerHTML = RESULTS.map(r =>
+    `<option value="${r.prod}">${r.prod} — ${r.desc.substring(0,40)}</option>`
   ).join('');
-  const subOpts = SUBASM_RESULTS.map(r =>
-    `<option value="${r.prod}">[Sub] ${r.prod} — ${r.desc.substring(0,35)} (${r.n_blocking} blocking)</option>`
-  ).join('');
-  sel.innerHTML = prodOpts +
-    (subOpts ? `<optgroup label="── Sub-Assemblies ──">${subOpts}</optgroup>` : '');
 }
 
 function renderShortage() {
-  const selVal = document.getElementById('sh-prod').value;
-  const prod = RESULTS.find(r => r.prod === selVal) || SUBASM_RESULTS.find(r => r.prod === selVal);
-  if (!prod) return;
-  const infoEl = document.getElementById('sh-subasm-info');
-  if (infoEl) {
-    if (prod.isSubAsm) {
-      const ubStr = prod.usedBy.map(u =>
-        `<span style="color:var(--accent2)">${u.prod}</span><span style="color:var(--muted);font-size:.72rem"> (${u.qty})</span>`
-      ).join(' &nbsp; ');
-      infoEl.innerHTML = `<span style="color:var(--sim);font-weight:700">Sub-Assembly</span> &nbsp;|&nbsp; Total demand: <b>${prod.total_qty}</b> &nbsp;|&nbsp; In stock: <b>${prod.stock}</b> &nbsp;|&nbsp; To make: <b style="color:var(--orange)">${prod.needToMake}</b> &nbsp;|&nbsp; Used by: ${ubStr}`;
-      infoEl.style.display = '';
-    } else {
-      infoEl.style.display = 'none';
-    }
-  }
+  const prodResult = RESULTS.find(r => r.prod === document.getElementById('sh-prod').value);
+  if (!prodResult) return;
   const srch = document.getElementById('sh-search').value.toLowerCase();
-  const comps = prod.compAnalysis.filter(c =>
-    c.shortNow > 0 && (!srch || [c.comp,c.desc,c.supplier||''].join(' ').toLowerCase().includes(srch))
-  );
-  document.getElementById('sh-body').innerHTML = comps.map(c => {
-    const poCover   = Math.round(Math.min(c.poAll, c.shortNow));
-    const remaining = Math.max(0, Math.round(c.shortNow - c.poAll));
-    const resFg = !c.resDate ? 'var(--red)' : daysDiff(c.resDate)<0?'var(--red)':daysDiff(c.resDate)<=30?'var(--orange)':'var(--green)';
-    const poLines = c.pos.map(p =>
-      `<span style="font-size:.72rem;color:var(--muted)">${p.order}: ${Math.round(p.qty)} by ${fd(p.eta)} (${p.supplier})</span>`
-    ).join('<br>');
-    const supp = c.supplier || PO_BY_ITEM[c.comp]?.[0]?.supplier || COMP_SUPPLIER[c.comp] || '—';
-    const splitKey  = c.comp;
-    const splitVal  = SPLIT_LIMITS[splitKey] || '';
-    const noteKey   = `sh_${prod.prod}_${c.comp}`;
+
+  // Build the BOM tree for this product and run recursive net requirements
+  const demand = prodResult.total_qty;
+  if (!demand) {
+    document.getElementById('sh-body').innerHTML =
+      `<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--muted)">No demand for this product.</td></tr>`;
+    addColFilters('tbl-shortage'); return;
+  }
+
+  const tree = buildBOMTree(prodResult.prod);
+  const shortages = netRequirements(tree, demand);
+
+  if (!shortages.length) {
+    document.getElementById('sh-body').innerHTML =
+      `<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--green)">✓ No shortages — all components covered.</td></tr>`;
+    addColFilters('tbl-shortage'); return;
+  }
+
+  // Flatten tree into rows with indent metadata for display
+  function flattenShortages(items, depth, parentPath) {
+    const rows = [];
+    for (const s of items) {
+      if (srch && ![s.comp, s.desc, s.supplier||''].join(' ').toLowerCase().includes(srch)) {
+        // Still include if children match
+        if (!s.childShortages?.some(c => JSON.stringify(c).toLowerCase().includes(srch))) continue;
+      }
+      rows.push({ ...s, depth, parentPath });
+      if (s.childShortages?.length) {
+        rows.push(...flattenShortages(s.childShortages, depth+1, [...parentPath, s.comp]));
+      }
+    }
+    return rows;
+  }
+
+  const flat = flattenShortages(shortages, 0, []);
+  const rowId = (comp, depth) => `sh_row_${comp}_${depth}`.replace(/[^a-zA-Z0-9_]/g,'_');
+
+  document.getElementById('sh-body').innerHTML = flat.map(s => {
+    const indent  = s.depth * 20;
+    const isSARow = s.isSA;
+    const resFg   = !s.resDate ? 'var(--red)' : daysDiff(s.resDate)<0?'var(--red)':daysDiff(s.resDate)<=30?'var(--orange)':'var(--green)';
+    const poLines = s.pos?.map(p =>
+      `<span style="font-size:.7rem;color:var(--muted)">${p.order}: ${Math.round(p.qty)} by ${fd(p.eta)}</span>`
+    ).join('<br>') || '';
+    const supp = s.supplier || PO_BY_ITEM[s.comp]?.[0]?.supplier || COMP_SUPPLIER[s.comp] || '—';
+    const splitVal  = SPLIT_LIMITS[s.comp] || '';
+    const noteKey   = `sh_${prodResult.prod}_${s.comp}_${s.depth}`;
     const noteVal   = (NOTES[noteKey]||'').replace(/"/g,'&quot;');
-    const splitWarn = c.splitLimited ? `<span style="font-size:.68rem;color:var(--orange)" title="Split limit active: ${SPLIT_LIMITS[c.comp]}">⚠ limited</span>` : '';
-    return `<tr>
-      <td style="font-family:monospace;font-weight:700;color:var(--accent2);font-size:.78rem">${c.comp}</td>
-      <td><span class="trunc" title="${c.desc}">${c.desc||'—'}</span></td>
-      <td style="text-align:right">${c.qpa}</td>
-      <td style="text-align:right;font-weight:700">${c.need} ${splitWarn}</td>
-      <td style="text-align:right">${Math.round(c.onHand)}</td>
-      <td style="text-align:right;font-weight:700;color:var(--red)">${Math.round(c.shortNow)}</td>
-      <td style="text-align:right;color:${poCover>0?'var(--green)':'var(--muted)'}">${poCover||'—'}</td>
-      <td style="text-align:right;font-weight:700;color:${remaining>0?'var(--red)':'var(--green)'}">${remaining||'✓'}</td>
-      <td>
-        <input class="split-input" type="number" min="0" value="${splitVal}" placeholder="No limit"
-          title="Max qty this product can take of this component"
-          data-comp="${c.comp}"
-          onchange="SPLIT_LIMITS[this.dataset.comp]=parseFloat(this.value)||0;toast('Split limit set for ${c.comp}')">
+
+    // Row styling
+    const rowBg = s.depth === 0 ? '' :
+      s.depth === 1 ? 'background:rgba(255,255,255,.02)' : 'background:rgba(255,255,255,.04)';
+    const compColor = isSARow ? 'var(--sim)' : 'var(--accent2)';
+    const shortColor = isSARow ? 'var(--orange)' : 'var(--red)';
+
+    // Expand/collapse button for SA nodes
+    const expandBtn = isSARow && s.childShortages?.length
+      ? `<button onclick="toggleSARow('${rowId(s.comp, s.depth)}')" id="btn_${rowId(s.comp, s.depth)}"
+           style="background:transparent;border:1px solid var(--border);color:var(--sim);
+                  padding:1px 5px;font-size:.68rem;border-radius:3px;margin-right:4px">▼</button>`
+      : '';
+
+    // SA supply badge
+    const saTag = s.saFree > 0
+      ? `<span style="font-size:.68rem;color:var(--sim);margin-left:4px" title="${Math.round(s.saFree)} units from open WOs">(+${Math.round(s.saFree)} WO)</span>`
+      : '';
+
+    return `<tr id="${rowId(s.comp, s.depth)}_row" style="${rowBg};${isSARow?'border-top:1px solid rgba(199,125,255,.2)':''}">
+      <td style="font-family:monospace;font-weight:700;font-size:.78rem;color:${compColor};padding-left:${8+indent}px">
+        ${expandBtn}${s.comp}${saTag}
       </td>
-      <td style="font-weight:700;color:${resFg}">${c.resDate?fd(c.resDate):'Unresolved'}</td>
+      <td><span class="trunc" title="${s.desc}">${s.desc||'—'}</span></td>
+      <td style="text-align:right;color:var(--muted)">${s.depth>0?'':'L'+s.lvl} ${s.stype?s.stype.replace('2400_','').replace('PlannedProductionOrder','SA').replace('Purchase','BUY'):''}</td>
+      <td style="text-align:right">${s.qpa}</td>
+      <td style="text-align:right">${s.gross}</td>
+      <td style="text-align:right">${Math.round(s.stock)}</td>
+      <td style="text-align:right;color:${s.saFree>0?'var(--sim)':''}">${s.saFree>0?Math.round(s.saFree):'—'}</td>
+      <td style="text-align:right;font-weight:700;color:${shortColor}">${s.net}</td>
+      <td style="text-align:right;color:${s.poAll>0?'var(--green)':''}">${s.poAll?Math.round(s.poAll):'—'}</td>
+      <td style="text-align:right;font-weight:700;color:${s.netWithPO>0?'var(--red)':'var(--green)'}">${s.netWithPO>0?s.netWithPO:'✓'}</td>
+      <td style="font-weight:700;color:${resFg};font-size:.78rem">${s.resDate?fd(s.resDate):'—'}</td>
       <td style="font-size:.75rem"><span class="trunc" title="${supp}">${supp}</span></td>
-      <td style="text-align:right;font-weight:700;${c.pos.length?`color:${daysDiff(c.pos[0].eta)>60?'var(--red)':daysDiff(c.pos[0].eta)>30?'var(--orange)':'var(--green)'}`:''}">${c.pos.length?daysDiff(c.pos[0].eta)+'d':'<span style="color:var(--red)">No PO</span>'}</td>
-      <td style="font-size:.72rem;color:var(--muted)">${poLines||'<span style="color:var(--red)">No open POs</span>'}</td>
-      <td>
+      <td style="font-size:.7rem;color:var(--muted)">${poLines||'<span style="color:var(--red)">No POs</span>'}</td>
+      <td onclick="event.stopPropagation()">
         <input class="notes-input" type="text" value="${noteVal}" placeholder="Add note…"
           data-key="${noteKey}" onchange="NOTES[this.dataset.key]=this.value"
           onfocus="this.style.borderBottomColor='var(--accent)'"
           onblur="this.style.borderBottomColor='var(--border)'">
       </td>
     </tr>`;
-  }).join('') || `<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--green)">✓ No shortages for this product</td></tr>`;
+  }).join('');
   addColFilters('tbl-shortage');
 }
+
+function toggleSARow(baseId) {
+  const btn = document.getElementById(`btn_${baseId}`);
+  // Find all child rows (rows that are children of this SA)
+  const allRows = document.querySelectorAll('#tbl-shortage tbody tr');
+  let inSection = false;
+  let baseDepth = -1;
+  let collapsed = false;
+
+  for (const row of allRows) {
+    if (row.id === `${baseId}_row`) {
+      inSection = true;
+      // Determine depth from padding-left of first td
+      const pl = parseInt(row.querySelector('td')?.style.paddingLeft||'8');
+      baseDepth = Math.round((pl - 8) / 20);
+      continue;
+    }
+    if (inSection) {
+      const pl = parseInt(row.querySelector('td')?.style.paddingLeft||'8');
+      const rowDepth = Math.round((pl - 8) / 20);
+      if (rowDepth <= baseDepth) { inSection = false; break; }
+      if (row.style.display === 'none') {
+        row.style.display = ''; collapsed = true;
+      } else {
+        row.style.display = 'none';
+      }
+    }
+  }
+  if (btn) btn.textContent = collapsed ? '▼' : '▶';
+}
+
 
 // ══════════════════════════════════════
 // SHARED COMPONENTS
@@ -1268,12 +1514,25 @@ function renderBOM() {
   if (!prod) return;
 
   // Filter BOM rows for this product (skip level 0 — that's the product itself)
+  // Use the same column detection as parseAll (stored in window for reuse)
+  const bh = (RAW_BOM_ROWS[0]||[]).map(h=>String(h||'').toLowerCase().trim());
+  const bci = name => { const i=bh.indexOf(name); return i>=0?i:null; };
+  const rBC_LVL  = bci('level')??3;
+  const rBC_COMP = bci('flat comp')??4;
+  const rBC_DESC = bci('description')??5;
+  const rBC_STYPE= bci('supply type')??6;
+  const rBC_QPA  = (()=>{let c=0;for(let i=0;i<bh.length;i++){if(bh[i]==='quantity per'){c++;if(c===2)return i;}}return 10;})();
+  const rBC_TDMD = bci('total demand')??17;
+  const rBC_ONH  = bci('on-hand')??18;
+  const rBC_REC  = bci('receipts')??19;
+  const rBC_SUPP = bci('supplier')??26;
+
   const rows = RAW_BOM_ROWS.slice(1).filter(r => {
     if (String(r[0]||'').trim() !== prod) return false;
-    const lvl = parseInt(r[3]||0);
+    const lvl = parseInt(r[rBC_LVL]||0);
     if (lvl === 0) return false;
     if (lvlF !== 'all' && lvl !== parseInt(lvlF)) return false;
-    if (srch && ![String(r[4]||''),String(r[5]||'')].join(' ').toLowerCase().includes(srch)) return false;
+    if (srch && ![String(r[rBC_COMP]||''),String(r[rBC_DESC]||'')].join(' ').toLowerCase().includes(srch)) return false;
     return true;
   });
 
@@ -1282,15 +1541,15 @@ function renderBOM() {
   const totalDemand = prodOrders.reduce((s,o)=>s+o.qty,0);
 
   document.getElementById('bom-body').innerHTML = rows.map(r => {
-    const lvl      = parseInt(r[3]||0);
-    const comp     = String(r[4]||'').trim();
-    const desc     = String(r[5]||'').trim();
-    const supType  = String(r[6]||'').trim().replace('2400_','');
-    const qpa      = parseFloat(r[10]||0)||0;
-    const totalDem = parseFloat(r[17]||0)||0;
-    const onHand   = parseFloat(r[18]||0)||(INVENTORY[comp]||0);
-    const receipts = parseFloat(r[19]||0)||0;
-    const supplier = String(r[26]||'').trim();
+    const lvl      = parseInt(r[rBC_LVL]||0);
+    const comp     = String(r[rBC_COMP]||'').trim();
+    const desc     = String(r[rBC_DESC]||'').trim();
+    const supType  = String(r[rBC_STYPE]||'').trim().replace('2400_','');
+    const qpa      = parseFloat(r[rBC_QPA]||0)||0;
+    const totalDem = parseFloat(r[rBC_TDMD]||0)||0;
+    const onHand   = parseFloat(r[rBC_ONH]||0)||(INVENTORY[comp]||0);
+    const receipts = parseFloat(r[rBC_REC]||0)||0;
+    const supplier = String(r[rBC_SUPP]||'').trim();
     const need     = totalDemand * qpa;
     const shortNow = Math.max(0, need - onHand);
     const indent   = '&nbsp;'.repeat(lvl * 4);
@@ -1406,13 +1665,12 @@ function exportCSV(type) {
   } else if (type==='shortage') {
     const prod = RESULTS.find(r=>r.prod===document.getElementById('sh-prod').value);
     if (!prod) return;
-    csv = ['Product','Component','Description','QPA','Need Total','On Hand','Short Now','PO Covers','Remaining','Resolved By','Supplier','Lead Time (days)'].map(csvC).join(',') + '\r\n';
+    csv = ['Product','Component','Description','QPA','Need Total','On Hand','Short Now','PO Covers','Remaining','Resolved By','Supplier'].map(csvC).join(',') + '\r\n';
     prod.compAnalysis.filter(c=>c.shortNow>0).forEach(c => {
-      const poCover  = Math.round(Math.min(c.poAll, c.shortNow));
-      const rem      = Math.max(0, Math.round(c.shortNow - c.poAll));
-      const supp     = c.supplier || PO_BY_ITEM[c.comp]?.[0]?.supplier || '—';
-      const leadTime = c.pos.length ? daysDiff(c.pos[0].eta) : '';
-      csv += [prod.prod,c.comp,c.desc,c.qpa,c.need,Math.round(c.onHand),Math.round(c.shortNow),poCover,rem,c.resDate?fd(c.resDate):'Unresolved',supp,leadTime].map(csvC).join(',') + '\r\n';
+      const poCover = Math.round(Math.min(c.poAll, c.shortNow));
+      const rem     = Math.max(0, Math.round(c.shortNow - c.poAll));
+      const supp    = c.supplier || PO_BY_ITEM[c.comp]?.[0]?.supplier || '—';
+      csv += [prod.prod,c.comp,c.desc,c.qpa,c.need,Math.round(c.onHand),Math.round(c.shortNow),poCover,rem,c.resDate?fd(c.resDate):'Unresolved',supp].map(csvC).join(',') + '\r\n';
     });
   } else if (type==='shared') {
     csv = ['Component','Description','On Hand','Total Need','Total Short','# Products','Used By'].map(csvC).join(',') + '\r\n';
@@ -1444,10 +1702,15 @@ function exportCSV(type) {
     if (!prod) return;
     const totalDemand = (ORDERS_BY_PROD[prod]||[]).reduce((s,o)=>s+o.qty,0);
     csv = ['Level','Component','Description','Supply Type','QPA','Total Demand','On Hand','Receipts','Short Now','Supplier'].map(csvC).join(',') + '\r\n';
-    RAW_BOM_ROWS.slice(1).filter(r=>String(r[0]||'').trim()===prod && parseInt(r[3]||0)>0).forEach(r => {
-      const qpa=parseFloat(r[10]||0)||0; const onHand=parseFloat(r[18]||0)||(INVENTORY[String(r[4]||'')]||0);
+    const ebh=(RAW_BOM_ROWS[0]||[]).map(h=>String(h||'').toLowerCase().trim());
+    const ebci=n=>{const i=ebh.indexOf(n);return i>=0?i:null;};
+    const eBL=ebci('level')??3,eBCC=ebci('flat comp')??4,eBCD=ebci('description')??5,eBCS=ebci('supply type')??6;
+    const eBQPA=(()=>{let c=0;for(let i=0;i<ebh.length;i++){if(ebh[i]==='quantity per'){c++;if(c===2)return i;}}return 10;})();
+    const eBOH=ebci('on-hand')??18,eBR=ebci('receipts')??19,eBSUP=ebci('supplier')??26;
+    RAW_BOM_ROWS.slice(1).filter(r=>String(r[0]||'').trim()===prod && parseInt(r[eBL]||0)>0).forEach(r => {
+      const qpa=parseFloat(r[eBQPA]||0)||0; const onHand=parseFloat(r[eBOH]||0)||(INVENTORY[String(r[eBCC]||'')]||0);
       const need=totalDemand*qpa; const short=Math.max(0,need-onHand);
-      csv += [r[3],r[4],r[5],String(r[6]||'').replace('2400_',''),qpa,Math.round(need),Math.round(onHand),r[19]||0,Math.round(short),r[26]||''].map(csvC).join(',') + '\r\n';
+      csv += [r[eBL],r[eBCC],r[eBCD],String(r[eBCS]||'').replace('2400_',''),qpa,Math.round(need),Math.round(onHand),r[eBR]||0,Math.round(short),r[eBSUP]||''].map(csvC).join(',') + '\r\n';
     });
   } else if (type==='rawdemand') {
     csv = ['Date','Order','Item','Order Type','Status','Demand','Sched. Receipt','Planned Supply','Father Item'].map(csvC).join(',') + '\r\n';
