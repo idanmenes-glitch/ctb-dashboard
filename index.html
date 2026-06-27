@@ -709,7 +709,7 @@ function runAnalysis() {
       setTimeout(() => {
         try {
           runAllocation();
-          computeSubAsmShortages();
+          try { computeSubAsmShortages(); } catch(e) { SUBASM_RESULTS = []; console.error('SubAsm error:', e); }
           initUI();
           hideLoad();
         } catch(e) {
@@ -730,7 +730,7 @@ function recalculate() {
   showLoad('Recalculating…');
   setTimeout(() => {
     runAllocation();
-    computeSubAsmShortages();
+    try { computeSubAsmShortages(); } catch(e) { SUBASM_RESULTS = []; console.error('SubAsm error:', e); }
     initShortageSelect();
     renderPlan();
     renderShortage();
