@@ -282,6 +282,7 @@ tbody td{padding:6px 9px;vertical-align:top}
         <th style="width:90px">Split Limit</th>
         <th style="width:100px">Resolved By</th>
         <th style="width:150px">Supplier</th>
+        <th style="width:90px">Lead Time</th>
         <th style="width:200px">Open POs</th>
         <th style="width:160px">Notes</th>
       </tr></thead><tbody id="sh-body"></tbody></table>
@@ -974,6 +975,7 @@ function renderShortage() {
       </td>
       <td style="font-weight:700;color:${resFg}">${c.resDate?fd(c.resDate):'Unresolved'}</td>
       <td style="font-size:.75rem"><span class="trunc" title="${supp}">${supp}</span></td>
+      <td style="text-align:right;font-weight:700;${c.pos.length?`color:${daysDiff(c.pos[0].eta)>60?'var(--red)':daysDiff(c.pos[0].eta)>30?'var(--orange)':'var(--green)'}`:''}">${c.pos.length?daysDiff(c.pos[0].eta)+'d':'<span style="color:var(--red)">No PO</span>'}</td>
       <td style="font-size:.72rem;color:var(--muted)">${poLines||'<span style="color:var(--red)">No open POs</span>'}</td>
       <td>
         <input class="notes-input" type="text" value="${noteVal}" placeholder="Add note…"
@@ -982,7 +984,7 @@ function renderShortage() {
           onblur="this.style.borderBottomColor='var(--border)'">
       </td>
     </tr>`;
-  }).join('') || `<tr><td colspan="11" style="padding:20px;text-align:center;color:var(--green)">✓ No shortages for this product</td></tr>`;
+  }).join('') || `<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--green)">✓ No shortages for this product</td></tr>`;
   addColFilters('tbl-shortage');
 }
 
@@ -1316,12 +1318,13 @@ function exportCSV(type) {
   } else if (type==='shortage') {
     const prod = RESULTS.find(r=>r.prod===document.getElementById('sh-prod').value);
     if (!prod) return;
-    csv = ['Product','Component','Description','QPA','Need Total','On Hand','Short Now','PO Covers','Remaining','Resolved By','Supplier'].map(csvC).join(',') + '\r\n';
+    csv = ['Product','Component','Description','QPA','Need Total','On Hand','Short Now','PO Covers','Remaining','Resolved By','Supplier','Lead Time (days)'].map(csvC).join(',') + '\r\n';
     prod.compAnalysis.filter(c=>c.shortNow>0).forEach(c => {
-      const poCover = Math.round(Math.min(c.poAll, c.shortNow));
-      const rem     = Math.max(0, Math.round(c.shortNow - c.poAll));
-      const supp    = c.supplier || PO_BY_ITEM[c.comp]?.[0]?.supplier || '—';
-      csv += [prod.prod,c.comp,c.desc,c.qpa,c.need,Math.round(c.onHand),Math.round(c.shortNow),poCover,rem,c.resDate?fd(c.resDate):'Unresolved',supp].map(csvC).join(',') + '\r\n';
+      const poCover  = Math.round(Math.min(c.poAll, c.shortNow));
+      const rem      = Math.max(0, Math.round(c.shortNow - c.poAll));
+      const supp     = c.supplier || PO_BY_ITEM[c.comp]?.[0]?.supplier || '—';
+      const leadTime = c.pos.length ? daysDiff(c.pos[0].eta) : '';
+      csv += [prod.prod,c.comp,c.desc,c.qpa,c.need,Math.round(c.onHand),Math.round(c.shortNow),poCover,rem,c.resDate?fd(c.resDate):'Unresolved',supp,leadTime].map(csvC).join(',') + '\r\n';
     });
   } else if (type==='shared') {
     csv = ['Component','Description','On Hand','Total Need','Total Short','# Products','Used By'].map(csvC).join(',') + '\r\n';
