@@ -143,6 +143,8 @@ tbody td{padding:6px 9px;vertical-align:top}
 /* Plan type badge */
 .b-act-s{background:rgba(82,183,136,.12);color:var(--green);font-size:.68rem;padding:1px 5px;border-radius:8px}
 .b-sim-s{background:var(--sim-bg);color:var(--sim);font-size:.68rem;padding:1px 5px;border-radius:8px}
+.bom-cached{font-size:.72rem;color:var(--green);margin-top:4px}
+.bom-clear{font-size:.68rem;padding:2px 8px;background:rgba(230,57,70,.1);color:var(--red);border-color:var(--red);margin-top:6px}
 </style>
 </head>
 <body>
@@ -168,6 +170,8 @@ tbody td{padding:6px 9px;vertical-align:top}
       <div class="uc-title">Indented BOM</div>
       <div class="uc-desc">Full bill of materials with QPA per component</div>
       <div class="uc-status" id="uc-bom-status">Not loaded</div>
+      <div class="bom-cached" id="uc-bom-cached" style="display:none"></div>
+      <button class="bom-clear" id="uc-bom-clear" onclick="clearCachedBOM(event)" style="display:none">🗑 Clear cached BOM</button>
     </div>
     <div class="upload-card" id="uc-order">
       <input type="file" accept=".xlsx,.xlsm,.xls" onchange="fileLoaded('order',this)">
@@ -442,6 +446,92 @@ const fd = d => d instanceof Date && d > EPOCH ? d.toLocaleDateString('en-GB') :
 const daysDiff = d => d instanceof Date ? Math.ceil((d - TODAY) / 86400000) : 9999;
 
 // ══════════════════════════════════════
+// INDEXED DB — PERSISTENT BOM CACHE
+// ══════════════════════════════════════
+const BOM_DB_NAME    = 'MfgDashboardBOM';
+const BOM_DB_VERSION = 1;
+const BOM_STORE      = 'bomStore';
+const BOM_KEY        = 'bom_workbook';
+
+function openBOMDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(BOM_DB_NAME, BOM_DB_VERSION);
+    req.onupgradeneeded = e => e.target.result.createObjectStore(BOM_STORE);
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+async function saveBOMtoDB(arrayBuffer, fileName, fileDate) {
+  try {
+    const db = await openBOMDB();
+    const tx = db.transaction(BOM_STORE, 'readwrite');
+    tx.objectStore(BOM_STORE).put({ buffer: arrayBuffer, fileName, fileDate: fileDate || new Date().toLocaleDateString('en-GB') }, BOM_KEY);
+    await new Promise((res, rej) => { tx.oncomplete=res; tx.onerror=rej; });
+    db.close();
+  } catch(e) { console.warn('BOM cache save failed:', e); }
+}
+
+async function loadBOMfromDB() {
+  try {
+    const db = await openBOMDB();
+    const tx = db.transaction(BOM_STORE, 'readonly');
+    const req = tx.objectStore(BOM_STORE).get(BOM_KEY);
+    return await new Promise((res, rej) => {
+      req.onsuccess = () => res(req.result || null);
+      req.onerror   = () => res(null);
+    });
+  } catch(e) { return null; }
+}
+
+async function clearCachedBOM(e) {
+  if (e) e.stopPropagation();
+  try {
+    const db = await openBOMDB();
+    const tx = db.transaction(BOM_STORE, 'readwrite');
+    tx.objectStore(BOM_STORE).delete(BOM_KEY);
+    await new Promise((res, rej) => { tx.oncomplete=res; tx.onerror=rej; });
+    db.close();
+  } catch(e) { console.warn('BOM cache clear failed:', e); }
+  FILES.bom = null;
+  document.getElementById('uc-bom').classList.remove('loaded');
+  document.getElementById('uc-bom-status').textContent = 'Not loaded';
+  document.getElementById('uc-bom-cached').style.display = 'none';
+  document.getElementById('uc-bom-clear').style.display = 'none';
+  document.getElementById('run-btn').disabled = !Object.values(FILES).every(f => f !== null);
+  toast('BOM cache cleared — upload a new BOM file');
+}
+
+function showBOMCached(fileName, fileDate) {
+  document.getElementById('uc-bom').classList.add('loaded');
+  document.getElementById('uc-bom-status').textContent = `✓ ${fileName}`;
+  document.getElementById('uc-bom-cached').style.display = 'block';
+  document.getElementById('uc-bom-cached').textContent  = `📦 Cached · ${fileDate}`;
+  document.getElementById('uc-bom-clear').style.display = 'block';
+}
+
+// On page load — try to restore BOM from IndexedDB
+window.addEventListener('DOMContentLoaded', async () => {
+  document.getElementById('sum-aud')?.addEventListener('change', buildSummary);
+  document.getElementById('sc-search')?.addEventListener('input', renderShared);
+  document.getElementById('po-search')?.addEventListener('input', renderPO);
+
+  // Try to load cached BOM
+  const cached = await loadBOMfromDB();
+  if (cached) {
+    try {
+      FILES.bom = XLSX.read(cached.buffer, { type: 'array', cellDates: true });
+      showBOMCached(cached.fileName, cached.fileDate);
+      const allLoaded = Object.values(FILES).every(f => f !== null);
+      document.getElementById('run-btn').disabled = !allLoaded;
+      toast('BOM loaded from cache ✓');
+    } catch(e) {
+      console.warn('Cached BOM parse failed:', e);
+    }
+  }
+});
+
+// ══════════════════════════════════════
 // FILE LOADING
 // ══════════════════════════════════════
 function fileLoaded(key, input) {
@@ -449,10 +539,17 @@ function fileLoaded(key, input) {
   const file = input.files[0];
   FILE_NAMES[key] = file.name;
   const reader = new FileReader();
-  reader.onload = e => {
-    FILES[key] = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+  reader.onload = async e => {
+    const buffer = e.target.result;
+    FILES[key] = XLSX.read(buffer, { type: 'array', cellDates: true });
     document.getElementById(`uc-${key}`).classList.add('loaded');
     document.getElementById(`uc-${key}-status`).textContent = `✓ ${file.name}`;
+    // Persist BOM to IndexedDB
+    if (key === 'bom') {
+      const fileDate = new Date().toLocaleDateString('en-GB');
+      await saveBOMtoDB(buffer, file.name, fileDate);
+      showBOMCached(file.name, fileDate);
+    }
     const allLoaded = Object.values(FILES).every(f => f !== null);
     document.getElementById('run-btn').disabled = !allLoaded;
   };
@@ -2037,11 +2134,13 @@ function fallbackCopy(text) {
   try{document.execCommand('copy')}catch(e){}
   document.body.removeChild(ta);
 }
-function resetApp() {
+async function resetApp() {
   ['bom','order','inv','po'].forEach(k=>{
     FILES[k]=null;
-    document.getElementById(`uc-${k}`).classList.remove('loaded');
-    document.getElementById(`uc-${k}-status`).textContent='Not loaded';
+    if (k !== 'bom') {  // BOM card handled separately below
+      document.getElementById(`uc-${k}`).classList.remove('loaded');
+      document.getElementById(`uc-${k}-status`).textContent='Not loaded';
+    }
   });
   // Clear all state — prevent stale data if user loads a new set of files
   RESULTS=[]; PRIORITY=[]; FLAGS={};
@@ -2054,14 +2153,29 @@ function resetApp() {
   document.getElementById('main').style.display='none';
   document.getElementById('btn-reset').style.display='none';
   document.getElementById('run-btn').disabled=true;
+
+  // Try to reload BOM from cache
+  const cached = await loadBOMfromDB();
+  if (cached) {
+    try {
+      FILES.bom = XLSX.read(cached.buffer, { type: 'array', cellDates: true });
+      showBOMCached(cached.fileName, cached.fileDate);
+      toast('BOM reloaded from cache ✓');
+    } catch(e) {
+      document.getElementById('uc-bom').classList.remove('loaded');
+      document.getElementById('uc-bom-status').textContent='Not loaded';
+      document.getElementById('uc-bom-cached').style.display='none';
+      document.getElementById('uc-bom-clear').style.display='none';
+    }
+  } else {
+    document.getElementById('uc-bom').classList.remove('loaded');
+    document.getElementById('uc-bom-status').textContent='Not loaded';
+    document.getElementById('uc-bom-cached').style.display='none';
+    document.getElementById('uc-bom-clear').style.display='none';
+  }
 }
 
-// Wire up summary dropdown
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('sum-aud')?.addEventListener('change', buildSummary);
-  document.getElementById('sc-search')?.addEventListener('input', renderShared);
-  document.getElementById('po-search')?.addEventListener('input', renderPO);
-});
+// Wire-up handled in DOMContentLoaded block above with BOM cache logic
 </script>
 </body>
 </html>
