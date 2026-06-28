@@ -172,8 +172,8 @@ tbody td{padding:6px 9px;vertical-align:top}
     <div class="upload-card" id="uc-order">
       <input type="file" accept=".xlsx,.xlsm,.xls" onchange="fileLoaded('order',this)">
       <div class="uc-icon">📋</div>
-      <div class="uc-title">Item Order Plan</div>
-      <div class="uc-desc">Production orders and planned production demand</div>
+      <div class="uc-title">Item Order Plan / Pegging</div>
+      <div class="uc-desc">Production orders & planned demand (Item Order Plan or Pegging file)</div>
       <div class="uc-status" id="uc-order-status">Not loaded</div>
     </div>
     <div class="upload-card" id="uc-inv">
@@ -548,47 +548,97 @@ function parseAll() {
   });
 
   // ── ORDER PLAN ──
+  // Supports two file formats:
+  // FORMAT A (Item Order Plan): sheet=Sheet1/Sheet2, columns: item, father_item, order_type, sched. receipt
+  // FORMAT B (PEGGING):         sheet='data', columns: order type, order, plan item (child)(child), date, quantity
   showLoad('Parsing order plan…');
   ORDERS_BY_PROD = {};
   SA_OPEN_WO = {};
   SA_DEMAND  = {};
-  const ordWs = FILES.order.Sheets[FILES.order.SheetNames[0]];
+  const ordSheetName = FILES.order.SheetNames.find(n => n.toLowerCase() === 'data')
+                    || FILES.order.SheetNames.find(n => n === 'Sheet1')
+                    || FILES.order.SheetNames.find(n => n === 'Sheet2')
+                    || FILES.order.SheetNames[0];
+  const ordWs = FILES.order.Sheets[ordSheetName];
   const ordRows = XLSX.utils.sheet_to_json(ordWs, { header:1, defval:null, raw:false });
   RAW_ORDER_ROWS = ordRows;
 
-  ordRows.slice(1).forEach(r => {
-    const otype  = String(r[4] || '').trim();
-    const father = String(r[11] || '').trim();
-    const item   = String(r[3] || '').trim();
-    if (!item) return;
+  const ordHdr = (ordRows[0]||[]).map(h => String(h||'').toLowerCase().trim());
+  const oC = name => { const i = ordHdr.indexOf(name); return i>=0 ? i : null; };
 
-    // Sub-assembly open WOs: active Production Orders for non-top-products (own WO)
-    if (otype === 'Production Order' && item === father && !TOP_PRODUCTS.has(item)) {
-      const receipt = parseFloat(r[7] || 0) || 0;
-      if (receipt > 0) SA_OPEN_WO[item] = (SA_OPEN_WO[item] || 0) + receipt;
-    }
+  // Detect format by checking for PEGGING-specific column name
+  const isPegging = ordHdr.some(h => h.includes('plan item'));
 
-    // Sub-assembly existing demand: active WO component rows (item != father)
-    if (otype === 'Production Order' && item !== father) {
-      const demand = parseFloat(r[6] || 0) || 0;
-      if (demand > 0) SA_DEMAND[item] = (SA_DEMAND[item] || 0) + demand;
-    }
+  if (isPegging) {
+    // ── FORMAT B: PEGGING file ──
+    const P_TYPE = oC('order type')                        ?? 3;
+    const P_ORD  = oC('order')                             ?? 4;
+    const P_PROD = ordHdr.findIndex(h => h.includes('plan item (child) (child)') && !h.includes('(child) (child) (child)'));
+    const P_DESC = ordHdr.findIndex(h => h.includes('plan item (child) (child) (child)'));
+    const P_DATE = oC('date')                              ?? 7;
+    const P_QTY  = oC('quantity')                          ?? 8;
 
-    // Top-product production orders (item == father, top product)
-    if (father !== item) return;
-    if (!['Production Order', 'Planned Production Order'].includes(otype)) return;
-    const date   = parseDate(r[0]);
-    const order  = String(r[1] || '').trim();
-    const status = String(r[5] || '').trim();
-    const qty    = otype === 'Production Order'
-                   ? (parseFloat(r[7] || 0) || 0)
-                   : (parseFloat(r[8] || 0) || 0);
-    if (qty <= 0) return;
-    if (!ORDERS_BY_PROD[item]) ORDERS_BY_PROD[item] = [];
-    ORDERS_BY_PROD[item].push({ date, order, qty, status,
-      type: otype === 'Production Order' ? 'active' : 'planned' });
-    if (!PROD_DESC[item] && BOM_BY_PROD[item]) PROD_DESC[item] = '';
-  });
+    ordRows.slice(1).forEach(r => {
+      const otype = String(r[P_TYPE] || '').trim();
+      const prod  = String(r[P_PROD>=0?P_PROD:5] || '').trim();
+      const desc  = String(r[P_DESC>=0?P_DESC:6] || '').trim();
+      const date  = parseDate(r[P_DATE]);
+      const qty   = parseFloat(r[P_QTY] || 0) || 0;
+      const order = String(r[P_ORD]  || '').trim();
+      if (!prod || qty <= 0) return;
+      // 'Forecast' also means planned demand
+      const isActive  = otype === 'Production Order';
+      const isPlanned = otype === 'Planned Production Order' || otype === 'Forecast';
+      if (!isActive && !isPlanned) return;
+      if (!ORDERS_BY_PROD[prod]) ORDERS_BY_PROD[prod] = [];
+      ORDERS_BY_PROD[prod].push({ date, order, qty, status: otype,
+        type: isActive ? 'active' : 'planned' });
+      if (!PROD_DESC[prod]) PROD_DESC[prod] = desc;
+    });
+
+  } else {
+    // ── FORMAT A: Item Order Plan file ──
+    const O_DATE   = oC('date')           ?? 0;
+    const O_ORDER  = oC('order_number')   ?? oC('order') ?? 1;
+    const O_ITEM   = oC('item')           ?? 3;
+    const O_TYPE   = oC('order_type')     ?? 4;
+    const O_STATUS = oC('order_status')   ?? oC('status') ?? 5;
+    const O_DEMAND = oC('demand')         ?? 6;
+    const O_SCHED  = oC('sched. receipt') ?? oC('sched receipt') ?? 7;
+    const O_PLAN   = oC('planned supply') ?? 8;
+    const O_FATHER = oC('father_item')    ?? oC('father item') ?? 11;
+
+    ordRows.slice(1).forEach(r => {
+      const otype  = String(r[O_TYPE]   || '').trim();
+      const father = String(r[O_FATHER] || '').trim();
+      const item   = String(r[O_ITEM]   || '').trim();
+      if (!item) return;
+      // Sub-assembly open WOs
+      if (otype === 'Production Order' && item === father && !TOP_PRODUCTS.has(item)) {
+        const receipt = parseFloat(r[O_SCHED] || 0) || 0;
+        if (receipt > 0) SA_OPEN_WO[item] = (SA_OPEN_WO[item] || 0) + receipt;
+      }
+      // Sub-assembly existing demand
+      if (otype === 'Production Order' && item !== father) {
+        const demand = parseFloat(r[O_DEMAND] || 0) || 0;
+        if (demand > 0) SA_DEMAND[item] = (SA_DEMAND[item] || 0) + demand;
+      }
+      // Top-product orders
+      if (father !== item) return;
+      if (!['Production Order', 'Planned Production Order', 'Forecast'].includes(otype)) return;
+      const date   = parseDate(r[O_DATE]);
+      const order  = String(r[O_ORDER] || '').trim();
+      const status = String(r[O_STATUS] || '').trim();
+      const qty    = otype === 'Production Order'
+                     ? (parseFloat(r[O_SCHED] || 0) || 0)
+                     : (parseFloat(r[O_PLAN]  || 0) || 0);
+      if (qty <= 0) return;
+      if (!ORDERS_BY_PROD[item]) ORDERS_BY_PROD[item] = [];
+      ORDERS_BY_PROD[item].push({ date, order, qty, status,
+        type: otype === 'Production Order' ? 'active' : 'planned' });
+      if (!PROD_DESC[item] && BOM_BY_PROD[item]) PROD_DESC[item] = '';
+    });
+  }
 }
 
 function parseDate(v) {
@@ -606,12 +656,6 @@ function parseDate(v) {
     const Ymd = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (Ymd) {
       const d = new Date(s);
-      if (!isNaN(d) && d > EPOCH) return d;
-    }
-    // Try MM/DD/YYYY
-    const mdY = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (mdY) {
-      const d = new Date(`${mdY[3]}-${mdY[1].padStart(2,'0')}-${mdY[2].padStart(2,'0')}`);
       if (!isNaN(d) && d > EPOCH) return d;
     }
     // Generic fallback
@@ -925,9 +969,11 @@ function netRequirements(tree, parentDemand) {
     };
 
     if (node.children.length > 0) {
-      // Sub-assembly is short — recurse. Demand for children = net units of this SA
-      const childUnits = node.qpa > 0 ? net / node.qpa : net;
-      const childShortages = netRequirements(node.children, childUnits);
+      // Sub-assembly is short — recurse.
+      // `net` = how many units of this SA are missing.
+      // Pass `net` as parentDemand so children are multiplied by their own QPA correctly.
+      // (Do NOT divide by node.qpa — that would wrongly convert SA units back to top-product units)
+      const childShortages = netRequirements(node.children, net);
       enriched.childShortages = childShortages;
       enriched.isSA = true;
       // A SA is truly blocking only if it has child shortages too
@@ -1331,9 +1377,10 @@ function renderShared() {
   const compMap = {};
   RESULTS.forEach(r => {
     r.compAnalysis.forEach(c => {
-      if (c.shortNow <= 0) return;
-      if (!compMap[c.comp]) compMap[c.comp] = { comp: c.comp, desc: c.desc, onHand: c.onHand, products: [] };
-      compMap[c.comp].products.push({ prod: r.prod, need: c.need, shortNow: c.shortNow, qpa: c.qpa });
+      const totalShort = (c.shortActive||0) + (c.shortPlanned||0);
+      if (totalShort <= 0) return;
+      if (!compMap[c.comp]) compMap[c.comp] = { comp: c.comp, desc: c.desc, onHand: c.effectiveOnHand||c.onHand, products: [] };
+      compMap[c.comp].products.push({ prod: r.prod, need: c.need, shortNow: totalShort, qpa: c.qpa });
     });
   });
   const shared = Object.values(compMap).filter(c =>
@@ -1594,15 +1641,28 @@ function renderRawDemand() {
   const typeF = document.getElementById('rd-type')?.value || 'all';
   const srch  = (document.getElementById('rd-search')?.value||'').toLowerCase();
 
+  // Detect columns from header
+  const rdHdr = (RAW_ORDER_ROWS[0]||[]).map(h=>String(h||'').toLowerCase().trim());
+  const rdC = name => { const i=rdHdr.indexOf(name); return i>=0?i:null; };
+  const RD_DATE   = rdC('date')         ?? 0;
+  const RD_ORDER  = rdC('order_number') ?? rdC('order') ?? 1;
+  const RD_ITEM   = rdC('item')         ?? 3;
+  const RD_TYPE   = rdC('order_type')   ?? 4;
+  const RD_STATUS = rdC('order_status') ?? rdC('status') ?? 5;
+  const RD_DEMAND = rdC('demand')       ?? 6;
+  const RD_SCHED  = rdC('sched. receipt') ?? rdC('sched receipt') ?? 7;
+  const RD_PLAN   = rdC('planned supply') ?? 8;
+  const RD_FATHER = rdC('father_item')  ?? rdC('father item') ?? 11;
+
   // Filter raw order rows
   const rows = RAW_ORDER_ROWS.slice(1).filter(r => {
-    const otype  = String(r[4]||'');
-    const father = String(r[11]||'').trim();
-    const item   = String(r[3]||'').trim();
+    const otype  = String(r[RD_TYPE]||'');
+    const father = String(r[RD_FATHER]||'').trim();
+    const item   = String(r[RD_ITEM]||'').trim();
     if (!['Production Order','Planned Production Order'].includes(otype)) return false;
     if (prodF !== 'all' && father !== prodF) return false;
     if (typeF !== 'all' && otype !== typeF) return false;
-    if (srch && ![String(r[1]||''),item,father,otype].join(' ').toLowerCase().includes(srch)) return false;
+    if (srch && ![String(r[RD_ORDER]||''),item,father,otype].join(' ').toLowerCase().includes(srch)) return false;
     return true;
   });
 
@@ -1613,15 +1673,15 @@ function renderRawDemand() {
     : `<span class="b-sim-s">SIM</span>`;
 
   document.getElementById('rd-body').innerHTML = rows.map((r,i) => {
-    const date    = r[0] ? String(r[0]).substring(0,10) : '—';
-    const order   = String(r[1]||'');
-    const item    = String(r[3]||'').trim();
-    const otype   = String(r[4]||'');
-    const status  = String(r[5]||'');
-    const demand  = r[6] ? Math.round(parseFloat(r[6])||0) : '—';
-    const receipt = r[7] ? Math.round(parseFloat(r[7])||0) : '—';
-    const planned = r[8] ? Math.round(parseFloat(r[8])||0) : '—';
-    const father  = String(r[11]||'').trim();
+    const date    = r[RD_DATE]   ? String(r[RD_DATE]).substring(0,10) : '—';
+    const order   = String(r[RD_ORDER]  ||'');
+    const item    = String(r[RD_ITEM]   ||'').trim();
+    const otype   = String(r[RD_TYPE]   ||'');
+    const status  = String(r[RD_STATUS] ||'');
+    const demand  = r[RD_DEMAND] ? Math.round(parseFloat(r[RD_DEMAND])||0) : '—';
+    const receipt = r[RD_SCHED]  ? Math.round(parseFloat(r[RD_SCHED]) ||0) : '—';
+    const planned = r[RD_PLAN]   ? Math.round(parseFloat(r[RD_PLAN])  ||0) : '—';
+    const father  = String(r[RD_FATHER] ||'').trim();
     const alt     = i%2===0?'':'background:rgba(255,255,255,.02)';
     const noteKey = `rd_${order}_${item}`;
     const noteVal = (NOTES[noteKey]||'').replace(/"/g,'&quot;');
@@ -1666,11 +1726,12 @@ function exportCSV(type) {
     const prod = RESULTS.find(r=>r.prod===document.getElementById('sh-prod').value);
     if (!prod) return;
     csv = ['Product','Component','Description','QPA','Need Total','On Hand','Short Now','PO Covers','Remaining','Resolved By','Supplier'].map(csvC).join(',') + '\r\n';
-    prod.compAnalysis.filter(c=>c.shortNow>0).forEach(c => {
-      const poCover = Math.round(Math.min(c.poAll, c.shortNow));
-      const rem     = Math.max(0, Math.round(c.shortNow - c.poAll));
+    prod.compAnalysis.filter(c=>(c.shortActive||0)+(c.shortPlanned||0)>0).forEach(c => {
+      const totalShort = (c.shortActive||0) + (c.shortPlanned||0);
+      const poCover = Math.round(Math.min(c.poAll, totalShort));
+      const rem     = Math.max(0, Math.round(totalShort - c.poAll));
       const supp    = c.supplier || PO_BY_ITEM[c.comp]?.[0]?.supplier || '—';
-      csv += [prod.prod,c.comp,c.desc,c.qpa,c.need,Math.round(c.onHand),Math.round(c.shortNow),poCover,rem,c.resDate?fd(c.resDate):'Unresolved',supp].map(csvC).join(',') + '\r\n';
+      csv += [prod.prod,c.comp,c.desc,c.qpa,c.need,Math.round(c.effectiveOnHand||c.onHand),Math.round(totalShort),poCover,rem,c.resDate?fd(c.resDate):'Unresolved',supp].map(csvC).join(',') + '\r\n';
     });
   } else if (type==='shared') {
     csv = ['Component','Description','On Hand','Total Need','Total Short','# Products','Used By'].map(csvC).join(',') + '\r\n';
@@ -1716,14 +1777,20 @@ function exportCSV(type) {
     csv = ['Date','Order','Item','Order Type','Status','Demand','Sched. Receipt','Planned Supply','Father Item'].map(csvC).join(',') + '\r\n';
     const prodF = document.getElementById('rd-prod')?.value||'all';
     const typeF = document.getElementById('rd-type')?.value||'all';
+    const exHdr = (RAW_ORDER_ROWS[0]||[]).map(h=>String(h||'').toLowerCase().trim());
+    const exC = n => { const i=exHdr.indexOf(n); return i>=0?i:null; };
+    const EX_DATE=exC('date')??0, EX_ORD=exC('order_number')??exC('order')??1;
+    const EX_ITEM=exC('item')??3, EX_TYPE=exC('order_type')??4, EX_STAT=exC('order_status')??exC('status')??5;
+    const EX_DEM=exC('demand')??6, EX_SCH=exC('sched. receipt')??exC('sched receipt')??7;
+    const EX_PLN=exC('planned supply')??8, EX_FAT=exC('father_item')??exC('father item')??11;
     RAW_ORDER_ROWS.slice(1).filter(r => {
-      const otype=String(r[4]||''); const father=String(r[11]||'').trim();
+      const otype=String(r[EX_TYPE]||''); const father=String(r[EX_FAT]||'').trim();
       if (!['Production Order','Planned Production Order'].includes(otype)) return false;
       if (prodF!=='all' && father!==prodF) return false;
       if (typeF!=='all' && otype!==typeF) return false;
       return true;
     }).forEach(r => {
-      csv += [String(r[0]||'').substring(0,10),r[1],r[3],r[4],r[5],r[6]||'',r[7]||'',r[8]||'',r[11]].map(csvC).join(',') + '\r\n';
+      csv += [String(r[EX_DATE]||'').substring(0,10),r[EX_ORD],r[EX_ITEM],r[EX_TYPE],r[EX_STAT],r[EX_DEM]||'',r[EX_SCH]||'',r[EX_PLN]||'',r[EX_FAT]].map(csvC).join(',') + '\r\n';
     });
   }
   const fname = `mfg_${type}_${date}.csv`;
@@ -1957,7 +2024,13 @@ function resetApp() {
     document.getElementById(`uc-${k}`).classList.remove('loaded');
     document.getElementById(`uc-${k}-status`).textContent='Not loaded';
   });
+  // Clear all state — prevent stale data if user loads a new set of files
   RESULTS=[]; PRIORITY=[]; FLAGS={};
+  REMOVED=new Set(); SPLIT_LIMITS={}; NOTES={};
+  INVENTORY={}; PO_BY_ITEM={}; BOM_BY_PROD={}; ORDERS_BY_PROD={};
+  PROD_DESC={}; COMP_DESC={}; COMP_SUPPLIER={};
+  SA_OPEN_WO={}; SA_DEMAND={}; TOP_PRODUCTS=new Set();
+  RAW_BOM_ROWS=[]; RAW_ORDER_ROWS=[];
   document.getElementById('upload-screen').style.display='';
   document.getElementById('main').style.display='none';
   document.getElementById('btn-reset').style.display='none';
