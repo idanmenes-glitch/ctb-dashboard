@@ -925,19 +925,41 @@ function buildBOMTree(prod) {
     });
   }
 
-  // Reconstruct tree from level sequence
+  // Reconstruct tree from level sequence.
+  // RULE: if a node's level jumps by more than 1 from ANY prior node at level-1,
+  // it has no valid parent in the sequence — treat it as a direct child of the
+  // product root (level 1 equivalent). This handles BOM export artifacts where
+  // items appear at e.g. L3 with no L2 parent between them and the last L1 item.
   const root = [];
   const stack = []; // [{lvl, node}]
   for (const node of nodes) {
+    // Pop entries that are at same or deeper level
     while (stack.length && stack[stack.length-1].lvl >= node.lvl) stack.pop();
-    if (stack.length) stack[stack.length-1].node.children.push(node);
-    else root.push(node);
+
+    if (stack.length === 0) {
+      // Nothing on stack — root level item
+      root.push(node);
+    } else {
+      const parentCandidate = stack[stack.length-1];
+      if (parentCandidate.lvl === node.lvl - 1) {
+        // Normal case: parent is exactly one level above — valid parent
+        parentCandidate.node.children.push(node);
+      } else {
+        // Level jump (e.g. stack top is L1, node is L3 — no L2 exists).
+        // Per business rule: treat as root-level (direct child of product).
+        root.push(node);
+        // Clear the stack so subsequent same-level items also go to root
+        stack.length = 0;
+      }
+    }
     stack.push({ lvl: node.lvl, node });
   }
   return root;
 }
 
-// Walk tree recursively, net each node against supply, return shortage nodes
+// Walk tree recursively, net each node against supply, return shortage nodes.
+// Always recurses into children even when parent is not short — handles BOM
+// level anomalies where a purchased item appears as parent of unrelated components.
 function netRequirements(tree, parentDemand) {
   const shortages = [];
   for (const node of tree) {
@@ -949,16 +971,11 @@ function netRequirements(tree, parentDemand) {
     const net     = Math.max(0, gross - avail);
     const netWithPO = Math.max(0, gross - avail - poAll);
 
-    if (net <= 0) continue; // enough supply — no shortage here
-
-    const enriched = {
+    const makeEnriched = () => ({
       ...node,
-      gross: Math.round(gross*10)/10,
-      stock, saFree, avail, poAll,
-      net:        Math.round(net*10)/10,
-      netWithPO:  Math.round(netWithPO*10)/10,
-      pos:        (PO_BY_ITEM[node.comp]||[]).sort((a,b)=>a.eta-b.eta),
-      // Resolution date
+      gross: Math.round(gross*10)/10, stock, saFree, avail, poAll,
+      net: Math.round(net*10)/10, netWithPO: Math.round(netWithPO*10)/10,
+      pos: (PO_BY_ITEM[node.comp]||[]).sort((a,b)=>a.eta-b.eta),
       resDate: (() => {
         let cumul = avail;
         for (const p of (PO_BY_ITEM[node.comp]||[]).sort((a,b)=>a.eta-b.eta)) {
@@ -966,24 +983,26 @@ function netRequirements(tree, parentDemand) {
         }
         return null;
       })(),
-    };
+    });
 
     if (node.children.length > 0) {
-      // Sub-assembly is short — recurse.
-      // `net` = how many units of this SA are missing.
-      // Pass `net` as parentDemand so children are multiplied by their own QPA correctly.
-      // (Do NOT divide by node.qpa — that would wrongly convert SA units back to top-product units)
-      const childShortages = netRequirements(node.children, net);
-      enriched.childShortages = childShortages;
-      enriched.isSA = true;
-      // A SA is truly blocking only if it has child shortages too
-      enriched.isBlocking = childShortages.length > 0 || net > 0;
-      shortages.push(enriched);
+      // Always recurse into children with the full gross demand.
+      const childShortages = netRequirements(node.children, gross);
+
+      if (net > 0) {
+        // Parent is short — show it with its child shortages
+        shortages.push({ ...makeEnriched(), childShortages, isSA: true, isBlocking: true });
+      } else if (childShortages.length > 0) {
+        // Parent is NOT short but children have shortages (e.g. BOM level anomaly).
+        // Show as pass-through so children are visible.
+        shortages.push({ ...makeEnriched(), childShortages, isSA: true,
+          isBlocking: false, isPassThrough: true });
+      }
+      // Parent ok + no child shortages → skip
     } else {
-      enriched.childShortages = [];
-      enriched.isSA = false;
-      enriched.isBlocking = true;
-      shortages.push(enriched);
+      // Leaf (purchased component) — only include if short
+      if (net <= 0) continue;
+      shortages.push({ ...makeEnriched(), childShortages: [], isSA: false, isBlocking: true });
     }
   }
   return shortages;
@@ -1295,7 +1314,7 @@ function renderShortage() {
     // Row styling
     const rowBg = s.depth === 0 ? '' :
       s.depth === 1 ? 'background:rgba(255,255,255,.02)' : 'background:rgba(255,255,255,.04)';
-    const compColor = isSARow ? 'var(--sim)' : 'var(--accent2)';
+    const compColor  = s.isPassThrough ? 'var(--muted)' : isSARow ? 'var(--sim)' : 'var(--accent2)';
     const shortColor = isSARow ? 'var(--orange)' : 'var(--red)';
 
     // Expand/collapse button for SA nodes
