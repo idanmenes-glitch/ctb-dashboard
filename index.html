@@ -780,22 +780,20 @@ function parseAll() {
   }
   if (!bomRows || bomRows.length < 2) throw new Error('BOM file appears empty or could not be parsed. If uploading XLSX, try saving as CSV first.');
   RAW_BOM_ROWS = bomRows;
-  // Detect columns from header
+  // Detect columns from header — handles both old (9+ cols) and new (7-col) BOM format
   const bomHdr = (bomRows[0]||[]).map(h => String(h||'').toLowerCase().trim());
   const bC = name => { const i = bomHdr.indexOf(name); return i>=0 ? i : null; };
-  const BC_PROD = bC('flat bom #') ?? 0;
-  const BC_PART = bC('part')       ?? 1;
-  const BC_LVL  = bC('level')      ?? 3;
-  const BC_COMP = bC('flat comp')  ?? 4;
-  const BC_DESC = bC('description')?? 5;
-  const BC_SUPP_TYPE = bC('supply type') ?? 6;
-  // QPA: there are two 'Quantity Per' columns — use index 10 (second one = actual QPA)
-  const BC_QPA  = (() => { let count=0; for(let i=0;i<bomHdr.length;i++) { if(bomHdr[i]==='quantity per'){count++;if(count===2)return i;} } return 10; })();
-  const BC_SUPP = bC('supplier')   ?? 26;
-  const BC_ONHAND = bC('on-hand')  ?? 18;
-  const BC_RECEIPTS = bC('receipts') ?? 19;
-  const BC_TDMD = bC('total demand') ?? 17;
-  // col 14 = cumulative, col 15 = unit cost etc — read all for BOM tab
+  const BC_PROD     = bC('flat bom #')  ?? 0;
+  const BC_LVL      = bC('level')       ?? 2;
+  const BC_COMP     = bC('flat comp')   ?? 3;
+  const BC_DESC     = bC('description') ?? 4;
+  // Supply type: new file uses 'bom type', old file uses 'supply type'
+  const BC_SUPP_TYPE = bC('supply type') ?? bC('bom type') ?? 5;
+  // QPA: new file has ONE 'quantity per'; old file has TWO (use 2nd)
+  const qpaIndices = bomHdr.reduce((acc,h,i) => h==='quantity per' ? [...acc,i] : acc, []);
+  const BC_QPA = qpaIndices.length >= 2 ? qpaIndices[1] : (qpaIndices[0] ?? bC('quantity per') ?? 6);
+  // Supplier: present in old file, absent in new
+  const BC_SUPP = bC('supplier') ?? -1;
   // col0=FlatBOM#, col3=level, col4=FlatComp, col5=desc, col10=QPA, col26=supplier
   bomRows.slice(1).forEach(r => {
     const prod = String(r[BC_PROD] || '').trim();
@@ -803,7 +801,7 @@ function parseAll() {
     const comp = String(r[BC_COMP] || '').trim();
     const desc = String(r[BC_DESC] || '').trim();
     const qpa  = parseFloat(r[BC_QPA] || 0) || 0;
-    const supp = String(r[BC_SUPP] || '').trim();
+    const supp = BC_SUPP >= 0 ? String(r[BC_SUPP] || '').trim() : '';
     if (!prod || !comp) return;
     if (lvl === 0) {
       PROD_DESC[prod] = desc;
@@ -812,7 +810,7 @@ function parseAll() {
       if (!BOM_BY_PROD[prod]) BOM_BY_PROD[prod] = [];
       BOM_BY_PROD[prod].push({ comp, desc, qpa, supplier: supp });
       COMP_DESC[comp] = COMP_DESC[comp] || desc;
-      COMP_SUPPLIER[comp] = COMP_SUPPLIER[comp] || supp;
+      if (supp) COMP_SUPPLIER[comp] = COMP_SUPPLIER[comp] || supp;
     }
   });
 
@@ -1179,8 +1177,13 @@ function buildBOMTree(prod) {
   const bh   = (RAW_BOM_ROWS[0]||[]).map(h => String(h||'').toLowerCase().trim());
   const bci  = n => { const i=bh.indexOf(n); return i>=0?i:null; };
   const BL   = bci('level')??3, BC=bci('flat comp')??4, BD=bci('description')??5;
-  const BQPA = (()=>{ let c=0; for(let i=0;i<bh.length;i++){ if(bh[i]==='quantity per'){c++;if(c===2)return i;} } return 10; })();
-  const BS   = bci('supply type')??6, BSUPP=bci('supplier')??26;
+  const BQPA = (()=>{
+    const indices = [];
+    for(let i=0;i<bh.length;i++){ if(bh[i]==='quantity per') indices.push(i); }
+    return indices.length >= 2 ? indices[1] : (indices[0] ?? 6);
+  })();
+  const BS   = bci('supply type') ?? bci('bom type') ?? 5;
+  const BSUPP= bci('supplier') ?? -1;
 
   const nodes = [];
   for (const r of rows) {
@@ -1190,7 +1193,9 @@ function buildBOMTree(prod) {
     if (qpa <= 0) continue;
     nodes.push({
       comp: String(r[BC]||'').trim(), desc: String(r[BD]||'').trim(),
-      qpa, lvl, stype: String(r[BS]||'').trim(), supplier: String(r[BSUPP]||'').trim(),
+      qpa, lvl,
+      stype: String(r[BS]||'').trim(),
+      supplier: BSUPP >= 0 ? String(r[BSUPP]||'').trim() : '',
       children: []
     });
   }
@@ -1853,15 +1858,12 @@ function renderBOM() {
   // Use the same column detection as parseAll (stored in window for reuse)
   const bh = (RAW_BOM_ROWS[0]||[]).map(h=>String(h||'').toLowerCase().trim());
   const bci = name => { const i=bh.indexOf(name); return i>=0?i:null; };
-  const rBC_LVL  = bci('level')??3;
-  const rBC_COMP = bci('flat comp')??4;
-  const rBC_DESC = bci('description')??5;
-  const rBC_STYPE= bci('supply type')??6;
-  const rBC_QPA  = (()=>{let c=0;for(let i=0;i<bh.length;i++){if(bh[i]==='quantity per'){c++;if(c===2)return i;}}return 10;})();
-  const rBC_TDMD = bci('total demand')??17;
-  const rBC_ONH  = bci('on-hand')??18;
-  const rBC_REC  = bci('receipts')??19;
-  const rBC_SUPP = bci('supplier')??26;
+  const rBC_LVL  = bci('level')??2;
+  const rBC_COMP = bci('flat comp')??3;
+  const rBC_DESC = bci('description')??4;
+  const rBC_STYPE= bci('supply type')??bci('bom type')??5;
+  const rBC_QPA  = (()=>{const idx=[];for(let i=0;i<bh.length;i++){if(bh[i]==='quantity per')idx.push(i);}return idx.length>=2?idx[1]:(idx[0]??6);})();
+  const rBC_SUPP = bci('supplier')??-1;
 
   const rows = RAW_BOM_ROWS.slice(1).filter(r => {
     if (String(r[0]||'').trim() !== prod) return false;
@@ -1882,10 +1884,8 @@ function renderBOM() {
     const desc     = String(r[rBC_DESC]||'').trim();
     const supType  = String(r[rBC_STYPE]||'').trim().replace('2400_','');
     const qpa      = parseFloat(r[rBC_QPA]||0)||0;
-    const totalDem = parseFloat(r[rBC_TDMD]||0)||0;
-    const onHand   = parseFloat(r[rBC_ONH]||0)||(INVENTORY[comp]||0);
-    const receipts = parseFloat(r[rBC_REC]||0)||0;
-    const supplier = String(r[rBC_SUPP]||'').trim();
+    const onHand   = INVENTORY[comp]||0;
+    const supplier = rBC_SUPP >= 0 ? String(r[rBC_SUPP]||'').trim() : (COMP_SUPPLIER[comp]||'');
     const need     = totalDemand * qpa;
     const shortNow = Math.max(0, need - onHand);
     const indent   = '&nbsp;'.repeat(lvl * 4);
@@ -1899,7 +1899,7 @@ function renderBOM() {
       <td style="text-align:right">${qpa||'—'}</td>
       <td style="text-align:right;font-weight:600">${need?Math.round(need):'—'}</td>
       <td style="text-align:right;color:${onHand>0?'var(--green)':'var(--muted)'}">${Math.round(onHand)}</td>
-      <td style="text-align:right;color:var(--accent)">${receipts||'—'}</td>
+      <td style="text-align:right">—</td>
       <td style="text-align:right;font-weight:700;color:${shortNow>0?'var(--red)':'var(--green)'}">${shortNow>0?Math.round(shortNow):'✓'}</td>
       <td style="font-size:.75rem"><span class="trunc" title="${supplier}">${supplier||'—'}</span></td>
       <td>
@@ -2051,16 +2051,19 @@ function exportCSV(type) {
     const prod = document.getElementById('bom-prod')?.value;
     if (!prod) return;
     const totalDemand = (ORDERS_BY_PROD[prod]||[]).reduce((s,o)=>s+o.qty,0);
-    csv = ['Level','Component','Description','Supply Type','QPA','Total Demand','On Hand','Receipts','Short Now','Supplier'].map(csvC).join(',') + '\r\n';
+    csv = ['Level','Component','Description','Supply Type','QPA','Total Demand','On Hand','Short Now','Supplier'].map(csvC).join(',') + '\r\n';
     const ebh=(RAW_BOM_ROWS[0]||[]).map(h=>String(h||'').toLowerCase().trim());
     const ebci=n=>{const i=ebh.indexOf(n);return i>=0?i:null;};
-    const eBL=ebci('level')??3,eBCC=ebci('flat comp')??4,eBCD=ebci('description')??5,eBCS=ebci('supply type')??6;
-    const eBQPA=(()=>{let c=0;for(let i=0;i<ebh.length;i++){if(ebh[i]==='quantity per'){c++;if(c===2)return i;}}return 10;})();
-    const eBOH=ebci('on-hand')??18,eBR=ebci('receipts')??19,eBSUP=ebci('supplier')??26;
+    const eBL=ebci('level')??2, eBCC=ebci('flat comp')??3, eBCD=ebci('description')??4;
+    const eBCS=ebci('supply type')??ebci('bom type')??5;
+    const eBQPA=(()=>{const idx=[];for(let i=0;i<ebh.length;i++){if(ebh[i]==='quantity per')idx.push(i);}return idx.length>=2?idx[1]:(idx[0]??6);})();
+    const eBSUP=ebci('supplier')??-1;
     RAW_BOM_ROWS.slice(1).filter(r=>String(r[0]||'').trim()===prod && parseInt(r[eBL]||0)>0).forEach(r => {
-      const qpa=parseFloat(r[eBQPA]||0)||0; const onHand=parseFloat(r[eBOH]||0)||(INVENTORY[String(r[eBCC]||'')]||0);
+      const qpa=parseFloat(r[eBQPA]||0)||0;
+      const onHand=INVENTORY[String(r[eBCC]||'').trim()]||0;
       const need=totalDemand*qpa; const short=Math.max(0,need-onHand);
-      csv += [r[eBL],r[eBCC],r[eBCD],String(r[eBCS]||'').replace('2400_',''),qpa,Math.round(need),Math.round(onHand),r[eBR]||0,Math.round(short),r[eBSUP]||''].map(csvC).join(',') + '\r\n';
+      const supp=eBSUP>=0?r[eBSUP]||'':COMP_SUPPLIER[String(r[eBCC]||'').trim()]||'';
+      csv += [r[eBL],r[eBCC],r[eBCD],String(r[eBCS]||'').replace('2400_',''),qpa,Math.round(need),Math.round(onHand),Math.round(short),supp].map(csvC).join(',') + '\r\n';
     });
   } else if (type==='rawdemand') {
     csv = ['Date','Order','Item','Order Type','Status','Demand','Sched. Receipt','Planned Supply','Father Item'].map(csvC).join(',') + '\r\n';
