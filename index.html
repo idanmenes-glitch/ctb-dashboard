@@ -1210,6 +1210,7 @@ function buildBOMTree(prod) {
     return indices.length >= 2 ? indices[1] : (indices[0] ?? 6);
   })();
   const BS   = bci('supply type') ?? bci('bom type') ?? 5;
+  const BMB  = bci('make/buy') ?? bci('makebuy') ?? -1;
   const BSUPP= bci('supplier') ?? -1;
 
   const nodes = [];
@@ -1222,6 +1223,7 @@ function buildBOMTree(prod) {
       comp: String(r[BC]||'').trim(), desc: String(r[BD]||'').trim(),
       qpa, lvl,
       stype: String(r[BS]||'').trim(),
+      makeBuy: BMB >= 0 ? String(r[BMB]||'').trim() : '',
       supplier: BSUPP >= 0 ? String(r[BSUPP]||'').trim() : '',
       children: []
     });
@@ -1273,7 +1275,11 @@ function netRequirements(tree, parentDemand) {
     const net     = Math.max(0, gross - avail);
     const netWithPO = Math.max(0, gross - avail - poAll);
     const isPhantom = /phantom/i.test(node.stype);
-    const isMake     = /pbom/i.test(node.stype); // PBOM = manufactured/Make item
+    // Use the explicit Make/Buy column when present; only mark orange if
+    // it's a real Make item AND not a phantom (phantoms have no stocking point).
+    const isMake = node.makeBuy
+      ? /^make$/i.test(node.makeBuy) && !isPhantom
+      : /pbom/i.test(node.stype) && !isPhantom; // fallback for older BOM files without Make/Buy column
 
     const makeEnriched = () => ({
       ...node,
