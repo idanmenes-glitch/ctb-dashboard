@@ -166,6 +166,10 @@ tbody tr:first-child td{border-top:none}
 /* BOM cached */
 .bom-cached{font-size:.73rem;color:var(--green);margin-top:5px}
 .bom-clear{font-size:.68rem;padding:2px 8px;background:var(--red-bg);color:var(--red);border-color:var(--red);margin-top:6px}
+.comp-make{color:#ff8c00!important;font-weight:700}
+.b-make{background:rgba(255,140,0,.14);color:#ff8c00;font-size:.65rem;padding:1px 6px;border-radius:8px;margin-left:5px;font-weight:700}
+.b-phantom{background:rgba(167,139,250,.1);color:var(--sim);font-size:.65rem;padding:1px 6px;border-radius:8px;margin-left:5px}
+.b-full-phantom{background:var(--grn-bg);color:var(--green);font-size:.62rem;padding:1px 5px;border-radius:7px;margin-left:4px}
 </style>
 </head>
 <body>
@@ -245,7 +249,10 @@ tbody tr:first-child td{border-top:none}
           </label>
         </div>
         <div id="priority-list"></div>
-        <button onclick="recalculate()" style="margin-top:10px;width:100%;background:var(--accent);color:#0d1b2a;border-color:var(--accent);font-weight:700">↻ Recalculate</button>
+        <div style="display:flex;gap:6px;margin-top:10px">
+          <button onclick="recalculate()" style="flex:1;background:var(--accent);color:#0d1b2a;border-color:var(--accent);font-weight:700">↻ Recalculate</button>
+          <button onclick="clearAllPriorities()" style="font-size:.78rem;color:var(--red);border-color:var(--red-bg)" title="Reset all flags to Normal and clear all removals">⊘ Clear</button>
+        </div>
       </div>
       <div>
         <div class="toolbar">
@@ -292,6 +299,7 @@ tbody tr:first-child td{border-top:none}
   <!-- SHORTAGES -->
   <div id="tab-shortage" class="tab-panel">
     <div class="toolbar">
+      <input type="text" id="sh-prod-filter" placeholder="🔍 Filter product list…" style="width:160px" oninput="filterProdSelect('sh-prod', this.value)">
       <select id="sh-prod" onchange="renderShortage()" style="max-width:260px"></select>
       <input type="text" id="sh-search" placeholder="Search component…" oninput="renderShortage()">
       <button class="btn-filter-toggle" onclick="toggleFilters('tbl-shortage',this)" title="Show/hide column filters">⊟ Filters</button>
@@ -378,6 +386,7 @@ tbody tr:first-child td{border-top:none}
   <!-- BOM BREAKDOWN -->
   <div id="tab-bom" class="tab-panel">
     <div class="toolbar">
+      <input type="text" id="bom-prod-filter" placeholder="🔍 Filter product list…" style="width:160px" oninput="filterProdSelect('bom-prod', this.value)">
       <select id="bom-prod" onchange="renderBOM()" style="max-width:280px"></select>
       <input type="text" id="bom-search" placeholder="Search component…" oninput="renderBOM()">
       <select id="bom-level" onchange="renderBOM()" style="width:110px">
@@ -413,6 +422,7 @@ tbody tr:first-child td{border-top:none}
         <option value="all">All order types</option>
         <option value="Production Order">Production Orders</option>
         <option value="Planned Production Order">Planned Production</option>
+        <option value="Forecast">Forecast</option>
       </select>
       <input type="text" id="rd-search" placeholder="Search order / item…" oninput="renderRawDemand()">
       <span id="rd-count" style="font-size:.78rem;color:var(--muted)"></span>
@@ -427,8 +437,8 @@ tbody tr:first-child td{border-top:none}
         <th style="width:190px">Order Type</th>
         <th style="width:130px">Status</th>
         <th style="width:80px">Demand</th>
-        <th style="width:90px">Sched. Receipt</th>
-        <th style="width:90px">Planned Supply</th>
+        <th style="width:90px">Sched. Receipt ✎</th>
+        <th style="width:90px">Planned Supply ✎</th>
         <th style="width:130px">Father Item</th>
         <th style="width:160px">Notes</th>
       </tr></thead><tbody id="rd-body"></tbody></table>
@@ -875,11 +885,15 @@ function parseAll() {
     const O_PLAN   = oC('planned supply') ?? 8;
     const O_FATHER = oC('father_item')    ?? oC('father item') ?? 11;
 
-    ordRows.slice(1).forEach(r => {
+    RAW_ORDER_ROWS.slice(1).forEach(r => {
       const otype  = String(r[O_TYPE]   || '').trim();
-      const father = String(r[O_FATHER] || '').trim();
+      let   father = String(r[O_FATHER] || '').trim();
       const item   = String(r[O_ITEM]   || '').trim();
       if (!item) return;
+      // Forecast rows often have a blank father_item even when they represent
+      // top-level demand for the item itself — treat blank father as item==father.
+      if (!father && otype === 'Forecast') father = item;
+
       // Sub-assembly open WOs
       if (otype === 'Production Order' && item === father && !TOP_PRODUCTS.has(item)) {
         const receipt = parseFloat(r[O_SCHED] || 0) || 0;
@@ -896,9 +910,10 @@ function parseAll() {
       const date   = parseDate(r[O_DATE]);
       const order  = String(r[O_ORDER] || '').trim();
       const status = String(r[O_STATUS] || '').trim();
-      const qty    = otype === 'Production Order'
-                     ? (parseFloat(r[O_SCHED] || 0) || 0)
-                     : (parseFloat(r[O_PLAN]  || 0) || 0);
+      // Forecast rows store their quantity in the 'demand' column, not Sched./Planned Supply
+      const qty    = otype === 'Production Order' ? (parseFloat(r[O_SCHED] || 0) || 0)
+                   : otype === 'Forecast'          ? (parseFloat(r[O_DEMAND] || 0) || 0)
+                   :                                  (parseFloat(r[O_PLAN]  || 0) || 0);
       if (qty <= 0) return;
       if (!ORDERS_BY_PROD[item]) ORDERS_BY_PROD[item] = [];
       ORDERS_BY_PROD[item].push({ date, order, qty, status,
@@ -1090,6 +1105,18 @@ function runAllocation() {
     else if (buildActiveNow>0)                                        status = 'PARTIAL';
     else                                                              status = 'BLOCKED';
 
+    // Phantom-only override: if every shortage for this product is a phantom item
+    // (no real stocking point), treat the product as fully buildable.
+    let phantomOnlyOverride = false;
+    if (status !== 'FULL' && status !== 'NO BOM' && total_qty > 0) {
+      const tree = buildBOMTree(prod);
+      const treeShortages = netRequirements(tree, total_qty);
+      if (allShortagesArePhantom(treeShortages)) {
+        status = 'FULL';
+        phantomOnlyOverride = true;
+      }
+    }
+
     // Date calculations
     const allEtaDates = new Set([TODAY.getTime()]);
     bom.forEach(c => (PO_BY_ITEM[c.comp]||[]).forEach(p => { if(p.eta) allEtaDates.add(p.eta.getTime()); }));
@@ -1128,7 +1155,7 @@ function runAllocation() {
       n_blocking: blockingActive.length,
       n_blocking_planned: blockingPlanned.length,
       pctNow, pctPo, pctActiveNow, pctPlannedNow,
-      status, firstSplitDate, fullProdDate,
+      status, firstSplitDate, fullProdDate, phantomOnlyOverride,
     });
   });
 }
@@ -1245,12 +1272,15 @@ function netRequirements(tree, parentDemand) {
     const avail   = stock + saFree;
     const net     = Math.max(0, gross - avail);
     const netWithPO = Math.max(0, gross - avail - poAll);
+    const isPhantom = /phantom/i.test(node.stype);
+    const isMake     = /pbom/i.test(node.stype); // PBOM = manufactured/Make item
 
     const makeEnriched = () => ({
       ...node,
       gross: Math.round(gross*10)/10, stock, saFree, avail, poAll,
       net: Math.round(net*10)/10, netWithPO: Math.round(netWithPO*10)/10,
       pos: (PO_BY_ITEM[node.comp]||[]).sort((a,b)=>a.eta-b.eta),
+      isPhantom, isMake,
       resDate: (() => {
         let cumul = avail;
         for (const p of (PO_BY_ITEM[node.comp]||[]).sort((a,b)=>(a.eta||new Date(9e15))-(b.eta||new Date(9e15)))) { if (!p.eta) continue;
@@ -1283,6 +1313,122 @@ function netRequirements(tree, parentDemand) {
   return shortages;
 }
 
+// Recursively check if EVERY shortage leaf in a tree is a phantom item.
+// Used to determine if a product's only "shortages" are phantom pass-throughs
+// (which should not block production — phantoms have no real stocking point).
+function allShortagesArePhantom(shortageList) {
+  if (!shortageList.length) return true; // no shortages = trivially "all phantom"
+  for (const s of shortageList) {
+    if (s.childShortages && s.childShortages.length > 0) {
+      // Has children — recurse; this node itself doesn't need to be a leaf shortage
+      if (!allShortagesArePhantom(s.childShortages)) return false;
+    } else {
+      // Leaf shortage — must be phantom
+      if (!s.isPhantom) return false;
+    }
+  }
+  return true;
+}
+
+
+// Edit a Sched. Receipt / Planned Supply value directly in the Raw Demand tab.
+// Writes back to RAW_ORDER_ROWS, then fully re-derives ORDERS_BY_PROD / SA state
+// from the modified raw rows and reruns allocation across the whole dashboard.
+function editRawDemand(input) {
+  const rawIdx = parseInt(input.dataset.rawIdx, 10);
+  const col    = parseInt(input.dataset.col, 10);
+  const newVal = parseFloat(input.value) || 0;
+  if (!RAW_ORDER_ROWS[rawIdx]) return;
+  RAW_ORDER_ROWS[rawIdx][col] = newVal;
+
+  // Re-derive ORDERS_BY_PROD, SA_OPEN_WO, SA_DEMAND from the modified raw rows
+  rebuildOrdersFromRaw();
+  runAllocation();
+  renderPlan();
+  renderShortage();
+  renderShared();
+  renderPO();
+  buildSummary();
+  updateKPIs();
+  renderRawDemand(); // re-render to reflect any filter/sort state
+  toast('Demand updated — dashboard recalculated ✓');
+}
+
+// Re-parse ORDERS_BY_PROD / SA_OPEN_WO / SA_DEMAND from RAW_ORDER_ROWS.
+// Mirrors the logic in parseAll's ORDER PLAN section, but operates on the
+// already-loaded (and possibly user-edited) RAW_ORDER_ROWS in memory.
+function rebuildOrdersFromRaw() {
+  ORDERS_BY_PROD = {};
+  SA_OPEN_WO = {};
+  SA_DEMAND  = {};
+  const ordHdr = (RAW_ORDER_ROWS[0]||[]).map(h => String(h||'').toLowerCase().trim());
+  const oC = name => { const i = ordHdr.indexOf(name); return i>=0 ? i : null; };
+  const isPegging = ordHdr.some(h => h.includes('plan item'));
+
+  if (isPegging) {
+    const P_TYPE = oC('order type') ?? 3;
+    const P_ORD  = oC('order') ?? 4;
+    const P_PROD = ordHdr.findIndex(h => h.includes('plan item (child) (child)') && !h.includes('(child) (child) (child)'));
+    const P_DESC = ordHdr.findIndex(h => h.includes('plan item (child) (child) (child)'));
+    const P_DATE = oC('date') ?? 7;
+    const P_QTY  = oC('quantity') ?? 8;
+
+    RAW_ORDER_ROWS.slice(1).forEach(r => {
+      const otype = String(r[P_TYPE] || '').trim();
+      const prod  = String(r[P_PROD>=0?P_PROD:5] || '').trim();
+      const desc  = String(r[P_DESC>=0?P_DESC:6] || '').trim();
+      const date  = parseDate(r[P_DATE]);
+      const qty   = parseFloat(r[P_QTY] || 0) || 0;
+      const order = String(r[P_ORD] || '').trim();
+      if (!prod || qty <= 0) return;
+      const isActive  = otype === 'Production Order';
+      const isPlanned = otype === 'Planned Production Order' || otype === 'Forecast';
+      if (!isActive && !isPlanned) return;
+      if (!ORDERS_BY_PROD[prod]) ORDERS_BY_PROD[prod] = [];
+      ORDERS_BY_PROD[prod].push({ date, order, qty, status: otype,
+        type: isActive ? 'active' : 'planned' });
+      if (!PROD_DESC[prod]) PROD_DESC[prod] = desc;
+    });
+  } else {
+    const O_DATE   = oC('date') ?? 0;
+    const O_ORDER  = oC('order_number') ?? oC('order') ?? 1;
+    const O_ITEM   = oC('item') ?? 3;
+    const O_TYPE   = oC('order_type') ?? 4;
+    const O_STATUS = oC('order_status') ?? oC('status') ?? 5;
+    const O_DEMAND = oC('demand') ?? 6;
+    const O_SCHED  = oC('sched. receipt') ?? oC('sched receipt') ?? 7;
+    const O_PLAN   = oC('planned supply') ?? 8;
+    const O_FATHER = oC('father_item') ?? oC('father item') ?? 11;
+
+    RAW_ORDER_ROWS.slice(1).forEach(r => {
+      const otype  = String(r[O_TYPE] || '').trim();
+      let   father = String(r[O_FATHER] || '').trim();
+      const item   = String(r[O_ITEM] || '').trim();
+      if (!item) return;
+      if (!father && otype === 'Forecast') father = item;
+      if (otype === 'Production Order' && item === father && !TOP_PRODUCTS.has(item)) {
+        const receipt = parseFloat(r[O_SCHED] || 0) || 0;
+        if (receipt > 0) SA_OPEN_WO[item] = (SA_OPEN_WO[item] || 0) + receipt;
+      }
+      if (otype === 'Production Order' && item !== father) {
+        const demand = parseFloat(r[O_DEMAND] || 0) || 0;
+        if (demand > 0) SA_DEMAND[item] = (SA_DEMAND[item] || 0) + demand;
+      }
+      if (father !== item) return;
+      if (!['Production Order', 'Planned Production Order', 'Forecast'].includes(otype)) return;
+      const date   = parseDate(r[O_DATE]);
+      const order  = String(r[O_ORDER] || '').trim();
+      const status = String(r[O_STATUS] || '').trim();
+      const qty    = otype === 'Production Order' ? (parseFloat(r[O_SCHED] || 0) || 0)
+                   : otype === 'Forecast'          ? (parseFloat(r[O_DEMAND] || 0) || 0)
+                   :                                  (parseFloat(r[O_PLAN]  || 0) || 0);
+      if (qty <= 0) return;
+      if (!ORDERS_BY_PROD[item]) ORDERS_BY_PROD[item] = [];
+      ORDERS_BY_PROD[item].push({ date, order, qty, status,
+        type: otype === 'Production Order' ? 'active' : 'planned' });
+    });
+  }
+}
 
 function recalculate() {
   showLoad('Recalculating…');
@@ -1399,6 +1545,16 @@ function toggleRemove(prod) {
   buildPriorityList();
 }
 
+// Reset all priority flags to 'normal' and restore all removed products.
+// Does NOT change drag order — only clears flags/removals.
+function clearAllPriorities() {
+  if (!confirm('Clear all priority flags and restore removed products?')) return;
+  PRIORITY.forEach(p => { FLAGS[p] = 'normal'; });
+  REMOVED.clear();
+  buildPriorityList();
+  toast('Priorities cleared ✓ — click Recalculate to apply');
+}
+
 let dragSrc = null;
 function dragStart(e) {
   dragSrc = e.currentTarget;
@@ -1500,7 +1656,7 @@ function renderPlan() {
         <td onclick="jumpToShortage('${r.prod}')" style="color:${dc};font-size:.78rem">${fd(r.first_due)}</td>
         <td onclick="jumpToShortage('${r.prod}')" style="font-size:.78rem;font-weight:600;color:${fsC}">${r.firstSplitDate?fd(r.firstSplitDate):'—'}</td>
         <td onclick="jumpToShortage('${r.prod}')" style="font-size:.78rem;font-weight:600;color:${fpC}">${r.fullProdDate?fd(r.fullProdDate):'—'}</td>
-        <td onclick="jumpToShortage('${r.prod}')"><span class="badge ${stBadge[r.status]||'b-info'}">${r.status}</span></td>
+        <td onclick="jumpToShortage('${r.prod}')"><span class="badge ${stBadge[r.status]||'b-info'}">${r.status}</span>${r.phantomOnlyOverride?`<span class="b-full-phantom" title="Marked Full — remaining shortages are all phantom items with no real stocking point">PHANTOM-OK</span>`:''}</td>
         <td onclick="event.stopPropagation()">
           <input class="notes-input" type="text" value="${noteVal}" placeholder="Add note…"
             data-key="${noteKey}" onchange="NOTES[this.dataset.key]=this.value"
@@ -1589,7 +1745,7 @@ function renderShortage() {
     // Row styling
     const rowBg = s.depth === 0 ? '' :
       s.depth === 1 ? 'background:rgba(255,255,255,.02)' : 'background:rgba(255,255,255,.04)';
-    const compColor  = s.isPassThrough ? 'var(--muted)' : isSARow ? 'var(--sim)' : 'var(--accent2)';
+    const compColor  = s.isMake ? '#ff8c00' : s.isPassThrough ? 'var(--muted)' : isSARow ? 'var(--sim)' : 'var(--accent2)';
     const shortColor = isSARow ? 'var(--orange)' : 'var(--red)';
 
     // Expand/collapse button for SA nodes
@@ -1603,10 +1759,13 @@ function renderShortage() {
     const saTag = s.saFree > 0
       ? `<span style="font-size:.68rem;color:var(--sim);margin-left:4px" title="${Math.round(s.saFree)} units from open WOs">(+${Math.round(s.saFree)} WO)</span>`
       : '';
+    // Make / Phantom badges
+    const makeTag    = s.isMake    ? `<span class="b-make" title="PBOM — Manufactured/Make item">MAKE</span>` : '';
+    const phantomTag = s.isPhantom ? `<span class="b-phantom" title="Phantom assembly — no real stocking point">PHANTOM</span>` : '';
 
     return `<tr id="${rowId(s.comp, s.depth)}_row" style="${rowBg};${isSARow?'border-top:1px solid rgba(199,125,255,.2)':''}">
       <td style="font-family:monospace;font-weight:700;font-size:.78rem;color:${compColor};padding-left:${8+indent}px">
-        ${expandBtn}${s.comp}${saTag}
+        ${expandBtn}${s.comp}${saTag}${makeTag}${phantomTag}
       </td>
       <td><span class="trunc" title="${s.desc}">${s.desc||'—'}</span></td>
       <td style="text-align:right;color:var(--muted)">${s.depth>0?'':'L'+s.lvl} ${s.stype?s.stype.replace('2400_','').replace('PlannedProductionOrder','SA').replace('Purchase','BUY'):''}</td>
@@ -1943,12 +2102,13 @@ function renderRawDemand() {
   const RD_PLAN   = rdC('planned supply') ?? 8;
   const RD_FATHER = rdC('father_item')  ?? rdC('father item') ?? 11;
 
-  // Filter raw order rows
-  const rows = RAW_ORDER_ROWS.slice(1).filter(r => {
+  // Filter raw order rows — keep original row index for write-back on edit
+  const rows = RAW_ORDER_ROWS.slice(1).map((r,i) => ({r, rawIdx:i+1})).filter(({r}) => {
     const otype  = String(r[RD_TYPE]||'');
-    const father = String(r[RD_FATHER]||'').trim();
+    let   father = String(r[RD_FATHER]||'').trim();
     const item   = String(r[RD_ITEM]||'').trim();
-    if (!['Production Order','Planned Production Order'].includes(otype)) return false;
+    if (!father && otype === 'Forecast') father = item;
+    if (!['Production Order','Planned Production Order','Forecast'].includes(otype)) return false;
     if (prodF !== 'all' && father !== prodF) return false;
     if (typeF !== 'all' && otype !== typeF) return false;
     if (srch && ![String(r[RD_ORDER]||''),item,father,otype].join(' ').toLowerCase().includes(srch)) return false;
@@ -1961,28 +2121,42 @@ function renderRawDemand() {
     ? `<span class="b-act-s">ACT</span>`
     : `<span class="b-sim-s">SIM</span>`;
 
-  document.getElementById('rd-body').innerHTML = rows.map((r,i) => {
+  document.getElementById('rd-body').innerHTML = rows.map(({r, rawIdx}, i) => {
     const date    = r[RD_DATE]   ? String(r[RD_DATE]).substring(0,10) : '—';
     const order   = String(r[RD_ORDER]  ||'');
     const item    = String(r[RD_ITEM]   ||'').trim();
     const otype   = String(r[RD_TYPE]   ||'');
     const status  = String(r[RD_STATUS] ||'');
-    const demand  = r[RD_DEMAND] ? Math.round(parseFloat(r[RD_DEMAND])||0) : '—';
-    const receipt = r[RD_SCHED]  ? Math.round(parseFloat(r[RD_SCHED]) ||0) : '—';
-    const planned = r[RD_PLAN]   ? Math.round(parseFloat(r[RD_PLAN])  ||0) : '—';
+    const demandVal = r[RD_DEMAND] ? Math.round(parseFloat(r[RD_DEMAND])||0) : 0;
+    const receiptVal = r[RD_SCHED] ? Math.round(parseFloat(r[RD_SCHED])||0) : 0;
+    const plannedVal = r[RD_PLAN]  ? Math.round(parseFloat(r[RD_PLAN]) ||0) : 0;
     const father  = String(r[RD_FATHER] ||'').trim();
     const alt     = i%2===0?'':'background:rgba(255,255,255,.02)';
     const noteKey = `rd_${order}_${item}`;
     const noteVal = (NOTES[noteKey]||'').replace(/"/g,'&quot;');
+    // Forecast rows store qty in the Demand column — make that one editable instead
+    const demandCell = otype === 'Forecast'
+      ? `<input type="number" min="0" value="${demandVal}" class="split-input" style="color:var(--sim);width:65px"
+           data-raw-idx="${rawIdx}" data-col="${RD_DEMAND}"
+           onchange="editRawDemand(this)" title="Edit Forecast quantity — recalculates dashboard">`
+      : `${demandVal||'—'}`;
     return `<tr style="${alt}">
       <td style="font-size:.78rem;color:var(--muted)">${date}</td>
       <td style="font-size:.75rem;color:var(--muted)">${order}</td>
       <td style="font-family:monospace;font-size:.78rem;color:var(--accent2)">${item}</td>
       <td>${typeBadge(otype)} <span style="font-size:.72rem;color:var(--muted)">${otype}</span></td>
       <td style="font-size:.75rem;color:var(--muted)">${status}</td>
-      <td style="text-align:right">${demand}</td>
-      <td style="text-align:right;color:var(--green)">${receipt}</td>
-      <td style="text-align:right;color:var(--sim)">${planned}</td>
+      <td style="text-align:right">${demandCell}</td>
+      <td style="text-align:right">
+        <input type="number" min="0" value="${receiptVal}" class="split-input" style="color:var(--green);width:65px"
+          data-raw-idx="${rawIdx}" data-col="${RD_SCHED}"
+          onchange="editRawDemand(this)" title="Edit Sched. Receipt — recalculates dashboard">
+      </td>
+      <td style="text-align:right">
+        <input type="number" min="0" value="${plannedVal}" class="split-input" style="color:var(--sim);width:65px"
+          data-raw-idx="${rawIdx}" data-col="${RD_PLAN}"
+          onchange="editRawDemand(this)" title="Edit Planned Supply — recalculates dashboard">
+      </td>
       <td style="font-size:.78rem;color:${father===item?'var(--accent)':'var(--muted)'}">${father}</td>
       <td>
         <input class="notes-input" type="text" value="${noteVal}" placeholder="Add note…"
@@ -2076,8 +2250,10 @@ function exportCSV(type) {
     const EX_DEM=exC('demand')??6, EX_SCH=exC('sched. receipt')??exC('sched receipt')??7;
     const EX_PLN=exC('planned supply')??8, EX_FAT=exC('father_item')??exC('father item')??11;
     RAW_ORDER_ROWS.slice(1).filter(r => {
-      const otype=String(r[EX_TYPE]||''); const father=String(r[EX_FAT]||'').trim();
-      if (!['Production Order','Planned Production Order'].includes(otype)) return false;
+      const otype=String(r[EX_TYPE]||''); let father=String(r[EX_FAT]||'').trim();
+      const item=String(r[EX_ITEM]||'').trim();
+      if (!father && otype==='Forecast') father = item;
+      if (!['Production Order','Planned Production Order','Forecast'].includes(otype)) return false;
       if (prodF!=='all' && father!==prodF) return false;
       if (typeF!=='all' && otype!==typeF) return false;
       return true;
@@ -2085,6 +2261,7 @@ function exportCSV(type) {
       csv += [String(r[EX_DATE]||'').substring(0,10),r[EX_ORD],r[EX_ITEM],r[EX_TYPE],r[EX_STAT],r[EX_DEM]||'',r[EX_SCH]||'',r[EX_PLN]||'',r[EX_FAT]].map(csvC).join(',') + '\r\n';
     });
   }
+  
   const fname = `mfg_${type}_${date}.csv`;
   try {
     const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
@@ -2145,10 +2322,25 @@ let activeFilterPopup = null;
 function toggleFilters(tableId, btn) {
   const tbl = document.getElementById(tableId);
   if (!tbl) return;
-  const wrap = tbl.closest('.tbl-wrap') || tbl.parentElement;
   const isHidden = tbl.classList.toggle('filters-hidden');
   btn.classList.toggle('active', !isHidden);
   btn.textContent = isHidden ? '⊞ Filters' : '⊟ Filters';
+}
+
+// Filter a <select>'s options by visible text, without losing the master list.
+// Master list is cached on the element itself (data attribute won't hold rich HTML,
+// so we use a JS property instead).
+function filterProdSelect(selectId, query) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  if (!sel._allOptionsHTML) sel._allOptionsHTML = sel.innerHTML; // cache once
+  const q = query.toLowerCase().trim();
+  if (!q) { sel.innerHTML = sel._allOptionsHTML; return; }
+  const parser = document.createElement('select');
+  parser.innerHTML = sel._allOptionsHTML;
+  const matches = Array.from(parser.options).filter(o => o.textContent.toLowerCase().includes(q));
+  sel.innerHTML = matches.map(o => `<option value="${o.value}">${o.textContent}</option>`).join('')
+    || `<option value="" disabled>No matches</option>`;
 }
 
 function addColFilters(tableId) {
