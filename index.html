@@ -9,24 +9,24 @@
 html{font-size:14px;-webkit-text-size-adjust:100%}
 body{font-family:-apple-system,'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
 :root{
-  /* Backgrounds */
-  --bg:#0f1923;--panel:#162130;--card:#1c2d3f;--border:#243447;
+  /* Backgrounds — light theme */
+  --bg:#f4f6f9;--panel:#ffffff;--card:#ffffff;--border:#d8dee6;
   /* Accent palette — teal-blue */
-  --accent:#38bdf8;--accent2:#7dd3fc;
-  /* Semantic colors */
-  --green:#34d399;--grn-bg:rgba(52,211,153,.10);
-  --red:#f87171;--red-bg:rgba(248,113,113,.10);
-  --orange:#fb923c;--ora-bg:rgba(251,146,60,.10);
-  --yellow:#fbbf24;--yel-bg:rgba(251,191,36,.09);
-  --sim:#a78bfa;--sim-bg:rgba(167,139,250,.10);
-  --muted:#4e6a82;--text:#d1e0ee;--radius:8px;
-  --sol:#38bdf8;--sol2:#fb923c;--sol3:#34d399;
+  --accent:#0284c7;--accent2:#0ea5e9;
+  /* Semantic colors — darker for contrast on light bg */
+  --green:#059669;--grn-bg:rgba(5,150,105,.10);
+  --red:#dc2626;--red-bg:rgba(220,38,38,.08);
+  --orange:#ea580c;--ora-bg:rgba(234,88,12,.10);
+  --yellow:#d97706;--yel-bg:rgba(217,119,6,.10);
+  --sim:#7c3aed;--sim-bg:rgba(124,58,237,.09);
+  --muted:#64748b;--text:#1e293b;--radius:8px;
+  --sol:#0284c7;--sol2:#ea580c;--sol3:#059669;
   /* Active/Sim badge */
-  --act-bg:rgba(52,211,153,.12);--act-fg:#34d399;
+  --act-bg:rgba(5,150,105,.12);--act-fg:#059669;
 }
 button{cursor:pointer;font-family:inherit;font-size:12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--card);color:var(--text);padding:5px 12px;transition:all .15s}
 button:hover{background:var(--border);border-color:var(--accent)}
-button.active{background:var(--accent);color:#0f1923;border-color:var(--accent);font-weight:700}
+button.active{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700}
 input,select,textarea{font-family:inherit;font-size:13px;border:1px solid var(--border);border-radius:var(--radius);padding:5px 9px;outline:none;background:var(--card);color:var(--text);-webkit-appearance:none}
 input:focus,select:focus{border-color:var(--accent)}
 select option{background:var(--panel)}
@@ -47,15 +47,15 @@ select option{background:var(--panel)}
 #upload-screen p{font-size:.88rem;color:var(--muted);max-width:440px}
 .upload-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;max-width:900px;width:100%;margin-top:8px}
 .upload-card{background:var(--card);border:2px dashed var(--border);border-radius:12px;padding:22px 18px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;position:relative}
-.upload-card:hover{border-color:var(--accent);background:rgba(56,189,248,.04)}
-.upload-card.loaded{border-color:var(--green);border-style:solid;background:rgba(52,211,153,.04)}
+.upload-card:hover{border-color:var(--accent);background:rgba(2,132,199,.05)}
+.upload-card.loaded{border-color:var(--green);border-style:solid;background:rgba(5,150,105,.06)}
 .upload-card .uc-icon{font-size:2rem;margin-bottom:8px}
 .upload-card .uc-title{font-size:.9rem;font-weight:600;color:var(--text);margin-bottom:4px}
 .upload-card .uc-desc{font-size:.76rem;color:var(--muted);line-height:1.4}
 .upload-card .uc-status{font-size:.76rem;margin-top:8px;font-weight:600}
 .upload-card.loaded .uc-status{color:var(--green)}
 .upload-card input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
-#run-btn{background:var(--accent);color:#0f1923;border:none;border-radius:var(--radius);padding:13px 36px;font-size:1rem;font-weight:700;cursor:pointer;margin-top:8px;transition:background .2s;letter-spacing:.01em}
+#run-btn{background:var(--accent);color:#fff;border:none;border-radius:var(--radius);padding:13px 36px;font-size:1rem;font-weight:700;cursor:pointer;margin-top:8px;transition:background .2s;letter-spacing:.01em}
 #run-btn:hover{background:var(--accent2)}
 #run-btn:disabled{background:var(--muted);cursor:not-allowed;color:var(--bg)}
 /* Nav */
@@ -119,7 +119,7 @@ thead tr.frow th button{
 .btn-filter-toggle{font-size:.72rem;padding:4px 10px;opacity:.7}
 .btn-filter-toggle.active{opacity:1;border-color:var(--accent);color:var(--accent)}
 tbody tr{border-bottom:1px solid rgba(36,52,71,.6);transition:background .1s}
-tbody tr:hover td{background:rgba(56,189,248,.04)!important}
+tbody tr:hover td{background:rgba(2,132,199,.05)!important}
 tbody td{padding:7px 10px;vertical-align:middle;font-size:.82rem}
 tbody tr:first-child td{border-top:none}
 .trunc{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
@@ -133,13 +133,13 @@ tbody tr:first-child td{border-top:none}
 .form-group textarea{resize:vertical;min-height:70px}
 #exp-out,#sum-out{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;font-family:'Courier New',monospace;font-size:.77rem;white-space:pre-wrap;line-height:1.6;min-height:340px;color:var(--text)}
 /* Loading */
-#loading{display:none;position:fixed;inset:0;background:rgba(15,25,35,.92);z-index:9999;flex-direction:column;align-items:center;justify-content:center;gap:16px}
+#loading{display:none;position:fixed;inset:0;background:rgba(244,246,249,.94);z-index:9999;flex-direction:column;align-items:center;justify-content:center;gap:16px}
 #loading.show{display:flex}
 .spin{width:42px;height:42px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 #load-msg{font-size:.88rem;color:var(--muted);max-width:320px;text-align:center;line-height:1.5}
 /* Toast */
-#toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:var(--green);color:#0f1923;padding:9px 22px;border-radius:20px;font-size:.82rem;font-weight:700;z-index:9999;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
+#toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:var(--green);color:#fff;padding:9px 22px;border-radius:20px;font-size:.82rem;font-weight:700;z-index:9999;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
 #toast.show{opacity:1}
 /* Shared component highlight */
 .shared-warn{color:var(--orange);font-size:.7rem}
@@ -169,6 +169,7 @@ tbody tr:first-child td{border-top:none}
 .comp-make{color:#ff8c00!important;font-weight:700}
 .b-make{background:rgba(255,140,0,.14);color:#ff8c00;font-size:.65rem;padding:1px 6px;border-radius:8px;margin-left:5px;font-weight:700}
 .b-phantom{background:rgba(167,139,250,.1);color:var(--sim);font-size:.65rem;padding:1px 6px;border-radius:8px;margin-left:5px}
+.b-e2s{background:rgba(56,189,248,.14);color:var(--accent);font-size:.65rem;padding:1px 6px;border-radius:8px;margin-left:5px;font-weight:700}
 .b-full-phantom{background:var(--grn-bg);color:var(--green);font-size:.62rem;padding:1px 5px;border-radius:7px;margin-left:4px}
 </style>
 </head>
@@ -179,6 +180,10 @@ tbody tr:first-child td{border-top:none}
 <div id="topbar">
   <h1>📦 Manufacturing Readiness</h1>
   <div id="topbar-meta"></div>
+  <label id="btn-e2s" style="display:none;font-size:.72rem;padding:5px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--card);color:var(--text);cursor:pointer" title="Upload a list of E2S (customer-supplied) components — one component code per line. These won't be flagged as blocking shortages.">
+    🏷 E2S list<span id="e2s-count" style="color:var(--sim);margin-left:5px"></span>
+    <input type="file" accept=".csv,.txt" style="display:none" onchange="loadE2SList(this)">
+  </label>
   <button style="display:none" id="btn-reset" onclick="resetApp()">↩ New files</button>
 </div>
 
@@ -250,7 +255,7 @@ tbody tr:first-child td{border-top:none}
         </div>
         <div id="priority-list"></div>
         <div style="display:flex;gap:6px;margin-top:10px">
-          <button onclick="recalculate()" style="flex:1;background:var(--accent);color:#0d1b2a;border-color:var(--accent);font-weight:700">↻ Recalculate</button>
+          <button onclick="recalculate()" style="flex:1;background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700">↻ Recalculate</button>
           <button onclick="clearAllPriorities()" style="font-size:.78rem;color:var(--red);border-color:var(--red-bg)" title="Reset all flags to Normal and clear all removals">⊘ Clear</button>
         </div>
       </div>
@@ -505,6 +510,8 @@ let FLAGS = {};           // prod -> 'critical'|'normal'|'low'
 let REMOVED = new Set();  // products removed from analysis
 let SPLIT_LIMITS = {};    // comp -> max qty per product (split limit)
 let NOTES = {};           // key -> user note (prod, comp, po line, etc.)
+let E2S_SET = new Set();  // components under customer responsibility (E2S) — OK to have no PO
+let SHARED_NOTES = {};    // comp -> note set in Shared Components tab (global per component)
 let RAW_BOM_ROWS = [];    // full BOM rows for BOM tab
 let RAW_ORDER_ROWS = [];  // full order rows for Raw Demand tab
 let planSortCol = 'rank', planSortDir = 1;
@@ -597,6 +604,13 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   // Try to load cached BOM
   const cached = await loadBOMfromDB();
+  // Restore E2S list from cache
+  const e2s = await loadE2SfromDB();
+  if (e2s && e2s.length) {
+    E2S_SET = new Set(e2s);
+    const cntEl = document.getElementById('e2s-count');
+    if (cntEl) cntEl.textContent = `(${E2S_SET.size})`;
+  }
   if (cached) {
     try {
       if (cached.type === 'csv') {
@@ -776,19 +790,27 @@ function parseAll() {
   const C_SUPP  = poCol('supplier_name') ?? 18;
   // ETA: prefer 'eta' column, fallback to 'current_planned_receipt_date'
   const C_ETA   = poCol('eta') ?? poCol('current_planned_receipt_date') ?? 29;
+  const C_ETD   = poCol('etd') ?? 30;  // Estimated Time of Departure
 
   poRows.slice(1).forEach(r => {
     const item = String(r[C_ITEM] || '').trim();
     const qty  = parseFloat(r[C_BACKQ] || 0) || 0;
-    const eta  = parseDate(r[C_ETA]);  // may be null if 'NO ETA' or blank
+    let   eta  = parseDate(r[C_ETA]);   // may be null if 'NO ETA' or blank
+    const etd  = parseDate(r[C_ETD]);
+    // If no ETA but there IS an ETD, estimate ETA = ETD + 2 weeks (14 days)
+    let etaEstimated = false;
+    if (!eta && etd) {
+      eta = new Date(etd.getTime() + 14 * 24 * 60 * 60 * 1000);
+      etaEstimated = true;
+    }
     const supp = String(r[C_SUPP] || '').trim();
     const ord  = String(r[C_ORD]  || '').trim();
     const desc = String(r[C_DESC] || '').trim();
     // Include if item and qty > 0, even if ETA is missing
     if (item && qty > 0) {
       if (!PO_BY_ITEM[item]) PO_BY_ITEM[item] = [];
-      PO_BY_ITEM[item].push({ qty, eta, supplier: supp, order: ord, desc,
-        noETA: !eta  // flag rows with no ETA for display
+      PO_BY_ITEM[item].push({ qty, eta, etd, supplier: supp, order: ord, desc,
+        noETA: !eta, etaEstimated  // flag rows with estimated ETA for display
       });
     }
   });
@@ -1359,13 +1381,14 @@ function netRequirements(tree, parentDemand, stockOverride) {
       const isMake    = node.makeBuy
         ? /^make$/i.test(node.makeBuy) && !isPhantom
         : /pbom/i.test(node.stype) && !isPhantom;
+      const isE2S     = E2S_SET.has(node.comp); // customer-supplied — OK to have no PO
 
       const makeEnriched = () => ({
         ...node,
         gross: Math.round(gross*10)/10, stock: totalAvail, saFree, avail, poAll,
         net: Math.round(net*10)/10, netWithPO: Math.round(netWithPO*10)/10,
         pos: (PO_BY_ITEM[node.comp]||[]).sort((a,b)=>(a.eta||new Date(9e15))-(b.eta||new Date(9e15))),
-        isPhantom, isMake,
+        isPhantom, isMake, isE2S,
         resDate: (() => {
           let cumul = avail;
           for (const p of (PO_BY_ITEM[node.comp]||[]).sort((a,b)=>(a.eta||new Date(9e15))-(b.eta||new Date(9e15)))) {
@@ -1529,10 +1552,74 @@ function recalculate() {
 // ══════════════════════════════════════
 // INIT UI
 // ══════════════════════════════════════
+// Load a list of E2S (customer-supplied) component codes — one per line, or CSV first column.
+// These components are OK to have no PO and won't be flagged as blocking shortages.
+function loadE2SList(input) {
+  if (!input.files[0]) return;
+  const file = input.files[0];
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result;
+    E2S_SET = new Set();
+    text.split(/\r?\n/).forEach(line => {
+      // Take first column (before any comma), trim
+      const code = line.split(',')[0].trim();
+      if (code && code.toLowerCase() !== 'item' && code.toLowerCase() !== 'component') {
+        E2S_SET.add(code);
+      }
+    });
+    document.getElementById('e2s-count').textContent = E2S_SET.size ? `(${E2S_SET.size})` : '';
+    saveE2StoDB(Array.from(E2S_SET));
+    // Recalculate so E2S components stop being flagged as blocking
+    if (RESULTS.length) {
+      runAllocation();
+      renderPlan(); renderShortage(); renderShared(); updateKPIs();
+    }
+    toast(`E2S list loaded — ${E2S_SET.size} components ✓`);
+  };
+  reader.readAsText(file);
+  input.value = ''; // allow re-upload of same file
+}
+
+// Persist E2S set to IndexedDB alongside BOM cache
+async function saveE2StoDB(arr) {
+  try {
+    const db = await openBOMDB();
+    const tx = db.transaction(BOM_STORE, 'readwrite');
+    tx.objectStore(BOM_STORE).put({ codes: arr }, 'e2s_list');
+    await new Promise((res,rej)=>{tx.oncomplete=res;tx.onerror=rej;});
+    db.close();
+  } catch(e) { console.warn('E2S save failed', e); }
+}
+async function loadE2SfromDB() {
+  try {
+    const db = await openBOMDB();
+    const tx = db.transaction(BOM_STORE, 'readonly');
+    const req = tx.objectStore(BOM_STORE).get('e2s_list');
+    return await new Promise(res => { req.onsuccess=()=>res(req.result?.codes||null); req.onerror=()=>res(null); });
+  } catch(e) { return null; }
+}
+
+// Set a note in the Shared Components tab — stored globally per component so it
+// appears wherever that component is shown across the dashboard.
+function setSharedNote(comp, value) {
+  if (value && value.trim()) SHARED_NOTES[comp] = value.trim();
+  else delete SHARED_NOTES[comp];
+  // Refresh views that display component notes so the note propagates immediately
+  if (document.getElementById('tab-shortage')?.classList.contains('active')) renderShortage();
+  if (document.getElementById('tab-bom')?.classList.contains('active')) renderBOM();
+}
+
+// Look up the shared note for a component (used across all tabs).
+function sharedNoteFor(comp) {
+  return SHARED_NOTES[comp] || '';
+}
+
 function initUI() {
   document.getElementById('upload-screen').style.display = 'none';
   document.getElementById('main').style.display = 'block';
   document.getElementById('btn-reset').style.display = '';
+  document.getElementById('btn-e2s').style.display = 'inline-block';
   document.getElementById('topbar-meta').textContent =
     `${RESULTS.length} products · ${new Date().toLocaleDateString('en-GB')}`;
 
@@ -1865,11 +1952,14 @@ function renderShortage() {
     const supp = s.supplier || PO_BY_ITEM[s.comp]?.[0]?.supplier || COMP_SUPPLIER[s.comp] || '—';
     const splitVal  = SPLIT_LIMITS[s.comp] || '';
     const noteKey   = `sh_${prodResult.prod}_${s.comp}_${s.depth}`;
-    const noteVal   = (NOTES[noteKey]||'').replace(/"/g,'&quot;');
+    const sharedNote = sharedNoteFor(s.comp);
+    // Component-specific note falls back to the shared (global) note if none set locally
+    const noteVal   = (NOTES[noteKey] || sharedNote || '').replace(/"/g,'&quot;');
+    const noteIsShared = !NOTES[noteKey] && !!sharedNote;
 
     // Row styling
     const rowBg = s.depth === 0 ? '' :
-      s.depth === 1 ? 'background:rgba(255,255,255,.02)' : 'background:rgba(255,255,255,.04)';
+      s.depth === 1 ? 'background:rgba(0,0,0,.02)' : 'background:rgba(0,0,0,.035)';
     const compColor  = s.isMake ? '#ff8c00' : s.isPassThrough ? 'var(--muted)' : isSARow ? 'var(--sim)' : 'var(--accent2)';
     const shortColor = isSARow ? 'var(--orange)' : 'var(--red)';
 
@@ -1884,13 +1974,14 @@ function renderShortage() {
     const saTag = s.saFree > 0
       ? `<span style="font-size:.68rem;color:var(--sim);margin-left:4px" title="${Math.round(s.saFree)} units from open WOs">(+${Math.round(s.saFree)} WO)</span>`
       : '';
-    // Make / Phantom badges
+    // Make / Phantom / E2S badges
     const makeTag    = s.isMake    ? `<span class="b-make" title="PBOM — Manufactured/Make item">MAKE</span>` : '';
     const phantomTag = s.isPhantom ? `<span class="b-phantom" title="Phantom assembly — no real stocking point">PHANTOM</span>` : '';
+    const e2sTag     = s.isE2S     ? `<span class="b-e2s" title="E2S — customer-supplied component, OK to have no PO">E2S</span>` : '';
 
     return `<tr id="${rowId(s.comp, s.depth)}_row" style="${rowBg};${isSARow?'border-top:1px solid rgba(199,125,255,.2)':''}">
       <td style="font-family:monospace;font-weight:700;font-size:.78rem;color:${compColor};padding-left:${8+indent}px">
-        ${expandBtn}${s.comp}${saTag}${makeTag}${phantomTag}
+        ${expandBtn}${s.comp}${saTag}${makeTag}${phantomTag}${e2sTag}
       </td>
       <td><span class="trunc" title="${s.desc}">${s.desc||'—'}</span></td>
       <td style="text-align:right;color:var(--muted)">${s.depth>0?'':'L'+s.lvl} ${s.stype?s.stype.replace('2400_','').replace('PlannedProductionOrder','SA').replace('Purchase','BUY'):''}</td>
@@ -1907,6 +1998,8 @@ function renderShortage() {
       <td onclick="event.stopPropagation()">
         <input class="notes-input" type="text" value="${noteVal}" placeholder="Add note…"
           data-key="${noteKey}" onchange="NOTES[this.dataset.key]=this.value"
+          style="${noteIsShared?'color:var(--accent);font-style:italic':''}"
+          title="${noteIsShared?'Shared note from Shared Components tab':''}"
           onfocus="this.style.borderBottomColor='var(--accent)'"
           onblur="this.style.borderBottomColor='var(--border)'">
       </td>
@@ -1973,7 +2066,7 @@ function renderShared() {
       `<span style="color:var(--accent2);font-size:.72rem">${p.prod}</span> <span style="color:var(--muted);font-size:.7rem">(need ${p.need}, short ${Math.round(p.shortNow)})</span>`
     ).join(' &nbsp;|&nbsp; ');
     const noteKey = `sc_${c.comp}`;
-    const noteVal = (NOTES[noteKey]||'').replace(/"/g,'&quot;');
+    const noteVal = (SHARED_NOTES[c.comp] || NOTES[noteKey] || '').replace(/"/g,'&quot;');
     return `<tr>
       <td style="font-family:monospace;font-weight:700;color:var(--orange);font-size:.78rem">${c.comp}</td>
       <td><span class="trunc" title="${c.desc}">${c.desc||'—'}</span></td>
@@ -1983,8 +2076,8 @@ function renderShared() {
       <td style="text-align:right;font-weight:700;color:var(--orange)">${c.products.length}</td>
       <td style="font-size:.75rem">${usedBy}</td>
       <td>
-        <input class="notes-input" type="text" value="${noteVal}" placeholder="Add note…"
-          data-key="${noteKey}" onchange="NOTES[this.dataset.key]=this.value"
+        <input class="notes-input" type="text" value="${noteVal}" placeholder="Add note (shown everywhere)…"
+          data-comp="${c.comp}" onchange="setSharedNote(this.dataset.comp, this.value)"
           onfocus="this.style.borderBottomColor='var(--accent)'"
           onblur="this.style.borderBottomColor='var(--border)'">
       </td>
@@ -2024,7 +2117,7 @@ function renderPO() {
       <td><span class="trunc" title="${p.desc}">${p.desc||'—'}</span></td>
       <td style="font-size:.75rem;color:var(--muted)">${p.order}</td>
       <td style="text-align:right;font-weight:700">${Math.round(p.qty)}</td>
-      <td style="color:${dc};font-weight:700">${p.eta?fd(p.eta):'<span style="color:var(--orange)">No ETA</span>'}</td>
+      <td style="color:${dc};font-weight:700">${p.eta?(p.etaEstimated?`(${fd(p.eta)})`:fd(p.eta)):'<span style="color:var(--orange)">No ETA</span>'}${p.etaEstimated?'<span style="font-size:.62rem;color:var(--muted);margin-left:3px" title="Estimated as ETD + 2 weeks">est</span>':''}</td>
       <td style="text-align:right;font-weight:700;color:${dc}">${p.eta&&days!==null?days+'d':'—'}</td>
       <td style="font-size:.75rem"><span class="trunc" title="${p.supplier}">${p.supplier||'—'}</span></td>
       <td>${ub}</td>
@@ -2256,7 +2349,7 @@ function renderRawDemand() {
     const receiptVal = r[RD_SCHED] ? Math.round(parseFloat(r[RD_SCHED])||0) : 0;
     const plannedVal = r[RD_PLAN]  ? Math.round(parseFloat(r[RD_PLAN]) ||0) : 0;
     const father  = String(r[RD_FATHER] ||'').trim();
-    const alt     = i%2===0?'':'background:rgba(255,255,255,.02)';
+    const alt     = i%2===0?'':'background:rgba(0,0,0,.02)';
     const noteKey = `rd_${order}_${item}`;
     const noteVal = (NOTES[noteKey]||'').replace(/"/g,'&quot;');
     // Forecast rows store qty in the Demand column — make that one editable instead
@@ -2306,20 +2399,29 @@ function exportCSV(type) {
   let csv = '';
   const date = new Date().toLocaleDateString('en-GB').replace(/\//g,'-');
   if (type==='plan') {
-    csv = ['Rank','Flag','Product','Description','Active Qty','Planned Qty','Total Qty','Build Now','Build+POs','% Now','Blocking','First Due','Status'].map(csvC).join(',') + '\r\n';
+    csv = ['Rank','Flag','Type','Product','Description','Active Qty','Planned Qty','Total Qty','Active Build','Plan Build','Build Now','Build+POs','% Now','Blocking','First Due','First Split Date','Full Prod Date','Status','Phantom-OK','Notes'].map(csvC).join(',') + '\r\n';
     RESULTS.forEach(r => {
-      csv += [r.rank,FLAGS[r.prod]||'normal',r.prod,r.desc,r.active_qty,r.planned_qty,r.total_qty,r.buildNow,r.buildPoDue,r.pctNow+'%',r.n_blocking,fd(r.first_due),r.status].map(csvC).join(',') + '\r\n';
+      const noteVal = NOTES[`plan_${r.prod}`] || '';
+      const type = r.active_qty>0 && r.planned_qty>0 ? 'ACT+SIM' : r.active_qty>0 ? 'ACT' : 'SIM';
+      csv += [r.rank,FLAGS[r.prod]||'normal',type,r.prod,r.desc,r.active_qty,r.planned_qty,r.total_qty,
+              r.buildActiveNow,r.buildPlannedNow,r.buildNow,r.buildPoDue,r.pctNow+'%',r.n_blocking,
+              fd(r.first_due),r.firstSplitDate?fd(r.firstSplitDate):'',r.fullProdDate?fd(r.fullProdDate):'',
+              r.status,r.phantomOnlyOverride?'YES':'',noteVal].map(csvC).join(',') + '\r\n';
     });
   } else if (type==='shortage') {
     const prod = RESULTS.find(r=>r.prod===document.getElementById('sh-prod').value);
     if (!prod) return;
-    csv = ['Product','Component','Description','QPA','Need Total','On Hand','Short Now','PO Covers','Remaining','Resolved By','Supplier'].map(csvC).join(',') + '\r\n';
+    csv = ['Product','Component','Description','Make/Buy','Phantom','E2S','QPA','Need Total','On Hand','Short Now','PO Covers','Remaining','Resolved By','Supplier','Notes'].map(csvC).join(',') + '\r\n';
     prod.compAnalysis.filter(c=>(c.shortActive||0)+(c.shortPlanned||0)>0).forEach(c => {
       const totalShort = (c.shortActive||0) + (c.shortPlanned||0);
       const poCover = Math.round(Math.min(c.poAll, totalShort));
       const rem     = Math.max(0, Math.round(totalShort - c.poAll));
       const supp    = c.supplier || PO_BY_ITEM[c.comp]?.[0]?.supplier || '—';
-      csv += [prod.prod,c.comp,c.desc,c.qpa,c.need,Math.round(c.effectiveOnHand||c.onHand),Math.round(totalShort),poCover,rem,c.resDate?fd(c.resDate):'Unresolved',supp].map(csvC).join(',') + '\r\n';
+      const isPh    = /phantom/i.test(c.stype||'') ? 'YES' : '';
+      const mb      = c.makeBuy || '';
+      const isE2S   = E2S_SET.has(c.comp) ? 'YES' : '';
+      const note    = NOTES[`sh_${prod.prod}_${c.comp}_0`] || sharedNoteFor(c.comp) || '';
+      csv += [prod.prod,c.comp,c.desc,mb,isPh,isE2S,c.qpa,c.need,Math.round(c.effectiveOnHand||c.onHand),Math.round(totalShort),poCover,rem,c.resDate?fd(c.resDate):'Unresolved',supp,note].map(csvC).join(',') + '\r\n';
     });
   } else if (type==='shared') {
     csv = ['Component','Description','On Hand','Total Need','Total Short','# Products','Used By'].map(csvC).join(',') + '\r\n';
@@ -2544,7 +2646,7 @@ function showFilterPopup(tableId, colIdx, anchorBtn) {
         style="font-size:.65rem;padding:1px 6px;background:var(--card)">${v.substring(0,20)}</button>`).join('')}
     </div>` : ''}
     <div style="display:flex;gap:6px">
-      <button id="fp-apply" style="flex:1;background:var(--accent);color:#0d1b2a;border-color:var(--accent);font-weight:700;font-size:.78rem">Apply</button>
+      <button id="fp-apply" style="flex:1;background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700;font-size:.78rem">Apply</button>
       <button id="fp-clear" style="font-size:.78rem">Clear</button>
       <button id="fp-close" style="font-size:.78rem">✕</button>
     </div>`;
