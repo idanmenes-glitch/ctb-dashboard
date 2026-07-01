@@ -299,8 +299,16 @@ tbody tr:first-child td{border-top:none}
   <!-- SHORTAGES -->
   <div id="tab-shortage" class="tab-panel">
     <div class="toolbar">
-      <input type="text" id="sh-prod-filter" placeholder="🔍 Filter product list…" style="width:160px" oninput="filterProdSelect('sh-prod', this.value)">
-      <select id="sh-prod" onchange="renderShortage()" style="max-width:260px"></select>
+      <select id="sh-mode" onchange="onShortageModeChange()" style="width:180px" title="Choose what to inspect">
+        <option value="demand">📋 Products with demand</option>
+        <option value="any">🔧 Any assembly (inspect)</option>
+      </select>
+      <input type="text" id="sh-prod-filter" placeholder="🔍 Filter product list…" style="width:150px" oninput="filterProdSelect('sh-prod', this.value)">
+      <select id="sh-prod" onchange="renderShortage()" style="max-width:240px"></select>
+      <span id="sh-qty-wrap" style="display:none;align-items:center;gap:5px">
+        <label style="font-size:.72rem;color:var(--muted)">Build qty:</label>
+        <input type="number" id="sh-qty" value="1" min="1" style="width:70px" oninput="renderShortage()">
+      </span>
       <input type="text" id="sh-search" placeholder="Search component…" oninput="renderShortage()">
       <button class="btn-filter-toggle" onclick="toggleFilters('tbl-shortage',this)" title="Show/hide column filters">⊟ Filters</button>
       <button class="ml-auto" onclick="exportCSV('shortage')">⬇ Export</button>
@@ -697,10 +705,23 @@ function fileLoaded(key, input) {
   }
 }
 
-// Fast CSV parser — handles quoted fields, commas in values
+// Fast CSV parser — handles quoted fields, commas in values, comma-thousands in numbers
 function parseCSVText(text) {
   const rows = [];
   const lines = text.split(/\r?\n/);
+  // Convert a raw field string to a number when it's numeric, else keep as string.
+  // Handles thousands separators like "1,167.0000" → 1167 (these are always quoted
+  // in the CSV so they arrive here as a single field with the comma intact).
+  const coerce = (s) => {
+    if (s === '') return null;
+    // Try stripping thousands-separator commas: only if it looks like a number
+    // with commas in thousands positions (e.g. 1,167 or 1,167.00 or 12,345,678.9)
+    const stripped = s.replace(/,/g, '');
+    if (stripped !== '' && !isNaN(stripped) && /^-?[\d,]*\.?\d+$/.test(s)) {
+      return Number(stripped);
+    }
+    return isNaN(s) ? s : Number(s);
+  };
   for (const line of lines) {
     if (!line.trim()) continue;
     const row = [];
@@ -711,14 +732,14 @@ function parseCSVText(text) {
         if (inQuote && line[i+1] === '"') { val += '"'; i += 2; continue; }
         inQuote = !inQuote;
       } else if (ch === ',' && !inQuote) {
-        row.push(val === '' ? null : isNaN(val) ? val : Number(val));
+        row.push(coerce(val));
         val = '';
       } else {
         val += ch;
       }
       i++;
     }
-    row.push(val === '' ? null : isNaN(val) ? val : Number(val));
+    row.push(coerce(val));
     rows.push(row);
   }
   return rows;
@@ -810,7 +831,7 @@ function parseAll() {
     const lvl  = parseInt(r[BC_LVL] || 0);
     const comp = String(r[BC_COMP] || '').trim();
     const desc = String(r[BC_DESC] || '').trim();
-    const qpa  = parseFloat(r[BC_QPA] || 0) || 0;
+    const qpa  = numVal(r[BC_QPA]);
     const supp = BC_SUPP >= 0 ? String(r[BC_SUPP] || '').trim() : '';
     if (!prod || !comp) return;
     if (lvl === 0) {
@@ -971,11 +992,18 @@ function runAllocation() {
     if (free > 0) poolAfterActive[item] = (poolAfterActive[item] || 0) + free;
   });
 
+  // Per-product pool snapshot: what each product sees when it's their turn
+  const poolSnapshotActive  = {};  // prod -> {comp -> available at time of active allocation}
+  const poolSnapshotPlanned = {};  // prod -> {comp -> available at time of planned allocation}
+
   sorted.forEach(prod => {
     const bom = BOM_BY_PROD[prod] || [];
     const orders = ORDERS_BY_PROD[prod] || [];
     const active_qty = orders.filter(o=>o.type==='active').reduce((s,o)=>s+o.qty,0);
     if (active_qty <= 0 || !bom.length) return;
+    // Snapshot the pool state BEFORE this product takes from it
+    poolSnapshotActive[prod] = {};
+    bom.forEach(c => { poolSnapshotActive[prod][c.comp] = poolAfterActive[c.comp] || 0; });
     bom.forEach(c => {
       const splitLim   = SPLIT_LIMITS[c.comp];
       const needActive = splitLim > 0 ? Math.min(active_qty * c.qpa, splitLim) : active_qty * c.qpa;
@@ -991,6 +1019,9 @@ function runAllocation() {
     const orders = ORDERS_BY_PROD[prod] || [];
     const planned_qty = orders.filter(o=>o.type==='planned').reduce((s,o)=>s+o.qty,0);
     if (planned_qty <= 0 || !bom.length) return;
+    // Snapshot the pool state BEFORE this product takes from it
+    poolSnapshotPlanned[prod] = {};
+    bom.forEach(c => { poolSnapshotPlanned[prod][c.comp] = poolAfterPlanned[c.comp] || 0; });
     bom.forEach(c => {
       const splitLim    = SPLIT_LIMITS[c.comp];
       const needPlanned = splitLim > 0 ? Math.min(planned_qty * c.qpa, splitLim) : planned_qty * c.qpa;
@@ -1141,13 +1172,25 @@ function runAllocation() {
     }
     if (firstSplitDate && firstSplitDate<=TODAY) firstSplitDate=TODAY;
 
+    // Build effective stock snapshot: what this product actually sees for each component.
+    // Merges active and planned pool snapshots — active pool takes priority.
+    // This is the stock available to THIS product specifically, after all higher-priority
+    // products have already taken their share. Used by renderShortage.
+    const effectiveStockSnapshot = {};
+    bom.forEach(c => {
+      const fromActive  = poolSnapshotActive[prod]?.[c.comp]  ?? (INVENTORY[c.comp] || 0);
+      const fromPlanned = poolSnapshotPlanned[prod]?.[c.comp] ?? 0;
+      // Combined: active gets first priority, planned gets what's left after active is served
+      effectiveStockSnapshot[c.comp] = fromActive; // active allocation view is the binding constraint
+    });
+
     RESULTS.push({
       prod, rank: idx+1,
       desc: PROD_DESC[prod]||'',
       flag: FLAGS[prod]||'normal',
       active_qty, planned_qty, total_qty,
       first_due, first_active_due, first_planned_due, orders,
-      bom, compAnalysis,
+      bom, compAnalysis, effectiveStockSnapshot,
       buildNow, buildPoDue, buildPoAll,
       buildActiveNow, buildActiveWithPO,
       buildPlannedNow, buildPlannedWithPO,
@@ -1198,6 +1241,14 @@ function runAnalysis() {
 // RECURSIVE BOM TREE + NET REQUIREMENTS
 // ══════════════════════════════════════
 
+// Parse a numeric value that may contain comma thousands separators (e.g. "1,167").
+function numVal(v) {
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number') return v;
+  const n = parseFloat(String(v).replace(/,/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+
 // Build hierarchical BOM tree from flat indented rows for a given product
 function buildBOMTree(prod) {
   const rows = RAW_BOM_ROWS.slice(1).filter(r => String(r[0]||'').trim() === prod);
@@ -1217,7 +1268,7 @@ function buildBOMTree(prod) {
   for (const r of rows) {
     const lvl = parseInt(r[BL]||0);
     if (lvl === 0) continue;
-    const qpa = parseFloat(r[BQPA]||0)||0;
+    const qpa = numVal(r[BQPA]);
     if (qpa <= 0) continue;
     nodes.push({
       comp: String(r[BC]||'').trim(), desc: String(r[BD]||'').trim(),
@@ -1262,61 +1313,86 @@ function buildBOMTree(prod) {
 }
 
 // Walk tree recursively, net each node against supply, return shortage nodes.
-// Always recurses into children even when parent is not short — handles BOM
-// level anomalies where a purchased item appears as parent of unrelated components.
-function netRequirements(tree, parentDemand) {
-  const shortages = [];
-  for (const node of tree) {
-    const gross   = parentDemand * node.qpa;
-    const stock   = INVENTORY[node.comp] || 0;
-    const saFree  = Math.max(0, (SA_OPEN_WO[node.comp]||0) - (SA_DEMAND[node.comp]||0));
-    const poAll   = (PO_BY_ITEM[node.comp]||[]).reduce((s,p)=>s+p.qty,0);
-    const avail   = stock + saFree;
-    const net     = Math.max(0, gross - avail);
-    const netWithPO = Math.max(0, gross - avail - poAll);
-    const isPhantom = /phantom/i.test(node.stype);
-    // Use the explicit Make/Buy column when present; only mark orange if
-    // it's a real Make item AND not a phantom (phantoms have no stocking point).
-    const isMake = node.makeBuy
-      ? /^make$/i.test(node.makeBuy) && !isPhantom
-      : /pbom/i.test(node.stype) && !isPhantom; // fallback for older BOM files without Make/Buy column
-
-    const makeEnriched = () => ({
-      ...node,
-      gross: Math.round(gross*10)/10, stock, saFree, avail, poAll,
-      net: Math.round(net*10)/10, netWithPO: Math.round(netWithPO*10)/10,
-      pos: (PO_BY_ITEM[node.comp]||[]).sort((a,b)=>a.eta-b.eta),
-      isPhantom, isMake,
-      resDate: (() => {
-        let cumul = avail;
-        for (const p of (PO_BY_ITEM[node.comp]||[]).sort((a,b)=>(a.eta||new Date(9e15))-(b.eta||new Date(9e15)))) { if (!p.eta) continue;
-          cumul += p.qty; if (cumul >= gross) return p.eta;
-        }
-        return null;
-      })(),
-    });
-
-    if (node.children.length > 0) {
-      // Always recurse into children with the full gross demand.
-      const childShortages = netRequirements(node.children, gross);
-
-      if (net > 0) {
-        // Parent is short — show it with its child shortages
-        shortages.push({ ...makeEnriched(), childShortages, isSA: true, isBlocking: true });
-      } else if (childShortages.length > 0) {
-        // Parent is NOT short but children have shortages (e.g. BOM level anomaly).
-        // Show as pass-through so children are visible.
-        shortages.push({ ...makeEnriched(), childShortages, isSA: true,
-          isBlocking: false, isPassThrough: true });
-      }
-      // Parent ok + no child shortages → skip
-    } else {
-      // Leaf (purchased component) — only include if short
-      if (net <= 0) continue;
-      shortages.push({ ...makeEnriched(), childShortages: [], isSA: false, isBlocking: true });
+// stockOverride: optional map of comp -> effectiveStock after priority allocation.
+//
+// IMPORTANT: A component may appear multiple times across different BOM paths
+// (e.g. L4 via one sub-assembly AND L3 via another). Each path contributes to
+// the total demand for that component. We must aggregate all paths FIRST, then
+// net the combined demand against stock — otherwise stock appears sufficient for
+// each path individually even when the total exceeds available supply.
+function netRequirements(tree, parentDemand, stockOverride) {
+  // Phase 1: walk the entire tree and accumulate total gross demand per component
+  const totalGross = {};
+  function accumulate(nodes, demand) {
+    for (const node of nodes) {
+      const gross = demand * node.qpa;
+      totalGross[node.comp] = (totalGross[node.comp] || 0) + gross;
+      if (node.children.length) accumulate(node.children, gross);
     }
   }
-  return shortages;
+  accumulate(tree, parentDemand);
+
+  // Phase 2: now build shortage nodes using the aggregated demand
+  // Track how much of each component's stock has already been spoken for
+  // by earlier paths in this same tree walk, so we don't double-count supply.
+  const stockUsed = {};
+
+  function buildShortages(nodes, demand) {
+    const shortages = [];
+    for (const node of nodes) {
+      const gross   = demand * node.qpa;
+      const stock   = stockOverride
+        ? (stockOverride[node.comp] ?? INVENTORY[node.comp] ?? 0)
+        : (INVENTORY[node.comp] || 0);
+      const saFree  = stockOverride ? 0 : Math.max(0, (SA_OPEN_WO[node.comp]||0) - (SA_DEMAND[node.comp]||0));
+      const poAll   = (PO_BY_ITEM[node.comp]||[]).reduce((s,p)=>s+p.qty,0);
+      const totalAvail = stock + saFree;
+      // Deduct what earlier paths already consumed from this same stock pool
+      const alreadyUsed = stockUsed[node.comp] || 0;
+      const avail   = Math.max(0, totalAvail - alreadyUsed);
+      const net     = Math.max(0, gross - avail);
+      const netWithPO = Math.max(0, gross - avail - poAll);
+      // Track consumption: this path uses min(avail, gross) from the stock
+      stockUsed[node.comp] = alreadyUsed + Math.min(avail, gross);
+
+      const isPhantom = /phantom/i.test(node.stype);
+      const isMake    = node.makeBuy
+        ? /^make$/i.test(node.makeBuy) && !isPhantom
+        : /pbom/i.test(node.stype) && !isPhantom;
+
+      const makeEnriched = () => ({
+        ...node,
+        gross: Math.round(gross*10)/10, stock: totalAvail, saFree, avail, poAll,
+        net: Math.round(net*10)/10, netWithPO: Math.round(netWithPO*10)/10,
+        pos: (PO_BY_ITEM[node.comp]||[]).sort((a,b)=>(a.eta||new Date(9e15))-(b.eta||new Date(9e15))),
+        isPhantom, isMake,
+        resDate: (() => {
+          let cumul = avail;
+          for (const p of (PO_BY_ITEM[node.comp]||[]).sort((a,b)=>(a.eta||new Date(9e15))-(b.eta||new Date(9e15)))) {
+            if (!p.eta) continue;
+            cumul += p.qty; if (cumul >= gross) return p.eta;
+          }
+          return null;
+        })(),
+      });
+
+      if (node.children.length > 0) {
+        const childShortages = buildShortages(node.children, gross);
+        if (net > 0) {
+          shortages.push({ ...makeEnriched(), childShortages, isSA: true, isBlocking: true });
+        } else if (childShortages.length > 0) {
+          shortages.push({ ...makeEnriched(), childShortages, isSA: true,
+            isBlocking: false, isPassThrough: true });
+        }
+      } else {
+        if (net <= 0) continue;
+        shortages.push({ ...makeEnriched(), childShortages: [], isSA: false, isBlocking: true });
+      }
+    }
+    return shortages;
+  }
+
+  return buildShortages(tree, parentDemand);
 }
 
 // Recursively check if EVERY shortage leaf in a tree is a phantom item.
@@ -1689,27 +1765,70 @@ function jumpToShortage(prod) {
 // SHORTAGES
 // ══════════════════════════════════════
 function initShortageSelect() {
+  populateShortageSelect();
+}
+
+// Populate the product dropdown based on the current mode:
+// 'demand' → only products with actual demand (from RESULTS)
+// 'any'    → every product/assembly that has a BOM (including demand-less sub-assemblies)
+function populateShortageSelect() {
   const sel = document.getElementById('sh-prod');
-  sel.innerHTML = RESULTS.map(r =>
-    `<option value="${r.prod}">${r.prod} — ${r.desc.substring(0,40)}</option>`
-  ).join('');
+  const mode = document.getElementById('sh-mode')?.value || 'demand';
+  let opts;
+  if (mode === 'any') {
+    // Every product that has a BOM defined, sorted alphabetically
+    opts = Object.keys(BOM_BY_PROD).sort().map(prod => {
+      const desc = (PROD_DESC[prod] || '').substring(0, 40);
+      const hasDemand = RESULTS.some(r => r.prod === prod);
+      const tag = hasDemand ? '' : ' [SA]';
+      return `<option value="${prod}">${prod}${tag} — ${desc}</option>`;
+    });
+  } else {
+    opts = RESULTS.map(r =>
+      `<option value="${r.prod}">${r.prod} — ${r.desc.substring(0,40)}</option>`
+    );
+  }
+  sel.innerHTML = opts.join('');
+  sel._allOptionsHTML = sel.innerHTML; // refresh filter cache
+}
+
+function onShortageModeChange() {
+  const mode = document.getElementById('sh-mode').value;
+  document.getElementById('sh-qty-wrap').style.display = mode === 'any' ? 'inline-flex' : 'none';
+  document.getElementById('sh-prod-filter').value = '';
+  populateShortageSelect();
+  renderShortage();
 }
 
 function renderShortage() {
-  const prodResult = RESULTS.find(r => r.prod === document.getElementById('sh-prod').value);
-  if (!prodResult) return;
-  const srch = document.getElementById('sh-search').value.toLowerCase();
+  const mode    = document.getElementById('sh-mode')?.value || 'demand';
+  const selProd = document.getElementById('sh-prod').value;
+  const srch    = document.getElementById('sh-search').value.toLowerCase();
 
-  // Build the BOM tree for this product and run recursive net requirements
-  const demand = prodResult.total_qty;
+  let prodResult, demand, stockOverride, prodName;
+
+  if (mode === 'any') {
+    // Inspection mode — any assembly, using a user-specified build qty and raw inventory
+    prodName = selProd;
+    demand   = Math.max(1, parseFloat(document.getElementById('sh-qty')?.value) || 1);
+    stockOverride = null; // raw inventory view (not priority-allocated, since it's ad-hoc)
+    prodResult = RESULTS.find(r => r.prod === selProd) || { prod: selProd, total_qty: demand };
+  } else {
+    prodResult = RESULTS.find(r => r.prod === selProd);
+    if (!prodResult) return;
+    prodName = prodResult.prod;
+    demand   = prodResult.total_qty;
+    stockOverride = prodResult.effectiveStockSnapshot;
+  }
+
   if (!demand) {
     document.getElementById('sh-body').innerHTML =
       `<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--muted)">No demand for this product.</td></tr>`;
     addColFilters('tbl-shortage'); return;
   }
 
-  const tree = buildBOMTree(prodResult.prod);
-  const shortages = netRequirements(tree, demand);
+  const tree = buildBOMTree(prodName);
+  const shortages = netRequirements(tree, demand, stockOverride);
 
   if (!shortages.length) {
     document.getElementById('sh-body').innerHTML =
