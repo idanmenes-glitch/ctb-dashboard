@@ -860,8 +860,22 @@ function parseAll() {
       PROD_DESC[prod] = desc;
       TOP_PRODUCTS.add(prod);
     } else if (qpa > 0) {
-      if (!BOM_BY_PROD[prod]) BOM_BY_PROD[prod] = [];
-      BOM_BY_PROD[prod].push({ comp, desc, qpa, supplier: supp });
+      // NOTE: the Indented BOM is FULLY PRE-EXPLODED — each row's "Quantity Per"
+      // is the ABSOLUTE quantity of that component per ONE unit of the top-level
+      // product (the sub-assembly multipliers are already baked in). Therefore we
+      // must NOT multiply QPAs down the tree. A component can appear on several
+      // rows (different BOM paths); its true per-unit demand is the SUM of those
+      // absolute QPAs. Aggregate by component (O(1) via a per-product Map) so each
+      // comp ends up with a single entry carrying its total absolute per-unit qty.
+      if (!BOM_BY_PROD[prod]) { BOM_BY_PROD[prod] = []; BOM_BY_PROD[prod]._idx = new Map(); }
+      const arr = BOM_BY_PROD[prod];
+      const at  = arr._idx.get(comp);
+      if (at !== undefined) {
+        arr[at].qpa += qpa;                           // sum absolute QPAs across paths
+      } else {
+        arr._idx.set(comp, arr.length);
+        arr.push({ comp, desc, qpa, supplier: supp });
+      }
       COMP_DESC[comp] = COMP_DESC[comp] || desc;
       if (supp) COMP_SUPPLIER[comp] = COMP_SUPPLIER[comp] || supp;
     }
@@ -1200,10 +1214,25 @@ function runAllocation() {
     // products have already taken their share. Used by renderShortage.
     const effectiveStockSnapshot = {};
     bom.forEach(c => {
-      const fromActive  = poolSnapshotActive[prod]?.[c.comp]  ?? (INVENTORY[c.comp] || 0);
-      const fromPlanned = poolSnapshotPlanned[prod]?.[c.comp] ?? 0;
-      // Combined: active gets first priority, planned gets what's left after active is served
-      effectiveStockSnapshot[c.comp] = fromActive; // active allocation view is the binding constraint
+      // For each component, use the pool snapshot that reflects what THIS product
+      // actually sees at its turn. A product with active demand is constrained by the
+      // ACTIVE-pass snapshot (taken before Pass-1 consumed it). A product whose demand
+      // is planned-only is served in Pass 2, so its binding constraint is the PLANNED
+      // snapshot (the pool AFTER all active allocation AND all higher-priority planned
+      // allocation). Using the active snapshot for a planned-only product would fall
+      // back to full raw INVENTORY and hide real shortages, since planned-only products
+      // never get an active snapshot entry.
+      const hasActiveSnap  = poolSnapshotActive[prod]  && (c.comp in poolSnapshotActive[prod]);
+      const hasPlannedSnap = poolSnapshotPlanned[prod] && (c.comp in poolSnapshotPlanned[prod]);
+      if (active_qty > 0 && hasActiveSnap) {
+        effectiveStockSnapshot[c.comp] = poolSnapshotActive[prod][c.comp];
+      } else if (hasPlannedSnap) {
+        effectiveStockSnapshot[c.comp] = poolSnapshotPlanned[prod][c.comp];
+      } else if (hasActiveSnap) {
+        effectiveStockSnapshot[c.comp] = poolSnapshotActive[prod][c.comp];
+      } else {
+        effectiveStockSnapshot[c.comp] = INVENTORY[c.comp] || 0;
+      }
     });
 
     RESULTS.push({
@@ -1343,26 +1372,22 @@ function buildBOMTree(prod) {
 // net the combined demand against stock — otherwise stock appears sufficient for
 // each path individually even when the total exceeds available supply.
 function netRequirements(tree, parentDemand, stockOverride) {
-  // Phase 1: walk the entire tree and accumulate total gross demand per component
-  const totalGross = {};
-  function accumulate(nodes, demand) {
-    for (const node of nodes) {
-      const gross = demand * node.qpa;
-      totalGross[node.comp] = (totalGross[node.comp] || 0) + gross;
-      if (node.children.length) accumulate(node.children, gross);
-    }
-  }
-  accumulate(tree, parentDemand);
+  // The Indented BOM is FULLY PRE-EXPLODED: every node's `qpa` is the ABSOLUTE
+  // quantity of that component per ONE unit of the TOP-LEVEL product. So a node's
+  // gross demand is ALWAYS `topDemand * node.qpa` — we must NOT cascade the parent's
+  // already-multiplied gross down the tree (that double-counts sub-assembly
+  // multipliers and massively over-states demand on multi-level assemblies).
+  const topDemand = parentDemand;
 
-  // Phase 2: now build shortage nodes using the aggregated demand
-  // Track how much of each component's stock has already been spoken for
-  // by earlier paths in this same tree walk, so we don't double-count supply.
+  // Track how much of each component's stock has already been spoken for by earlier
+  // occurrences in this same walk, so a component appearing on multiple BOM paths
+  // nets its combined demand against a single shared stock balance (no double supply).
   const stockUsed = {};
 
-  function buildShortages(nodes, demand) {
+  function buildShortages(nodes) {
     const shortages = [];
     for (const node of nodes) {
-      const gross   = demand * node.qpa;
+      const gross   = topDemand * node.qpa;   // ABSOLUTE — not parent-cascaded
       const stock   = stockOverride
         ? (stockOverride[node.comp] ?? INVENTORY[node.comp] ?? 0)
         : (INVENTORY[node.comp] || 0);
@@ -1400,7 +1425,7 @@ function netRequirements(tree, parentDemand, stockOverride) {
       });
 
       if (node.children.length > 0) {
-        const childShortages = buildShortages(node.children, gross);
+        const childShortages = buildShortages(node.children);
         if (net > 0) {
           shortages.push({ ...makeEnriched(), childShortages, isSA: true, isBlocking: true });
         } else if (childShortages.length > 0) {
@@ -1415,7 +1440,7 @@ function netRequirements(tree, parentDemand, stockOverride) {
     return shortages;
   }
 
-  return buildShortages(tree, parentDemand);
+  return buildShortages(tree);
 }
 
 // Recursively check if EVERY shortage leaf in a tree is a phantom item.
