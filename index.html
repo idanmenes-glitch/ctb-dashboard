@@ -326,6 +326,7 @@ tbody tr:first-child td{border-top:none}
         <th style="width:50px">QPA</th>
         <th style="width:75px">Gross Need</th>
         <th style="width:75px">Stock</th>
+        <th style="width:75px" title="Max units of this product that can be built from the available stock of this component (available stock ÷ QPA)">Limit</th>
         <th style="width:75px">SA WO Free</th>
         <th style="width:75px">Net Short</th>
         <th style="width:75px">PO Total</th>
@@ -374,6 +375,7 @@ tbody tr:first-child td{border-top:none}
         <th style="width:200px">Description</th>
         <th style="width:90px">Order</th>
         <th style="width:80px">Back Order</th>
+        <th style="width:100px" title="Estimated Time of Departure (from supplier), when provided">ETD</th>
         <th style="width:100px">ETA</th>
         <th style="width:70px">Days Away</th>
         <th style="width:150px">Supplier</th>
@@ -795,11 +797,14 @@ function parseAll() {
   poRows.slice(1).forEach(r => {
     const item = String(r[C_ITEM] || '').trim();
     const qty  = parseFloat(r[C_BACKQ] || 0) || 0;
-    let   eta  = parseDate(r[C_ETA]);   // may be null if 'NO ETA' or blank
-    const etd  = parseDate(r[C_ETD]);
-    // If no ETA but there IS an ETD, estimate ETA = ETD + 2 weeks (14 days)
+    const realEta = parseDate(r[C_ETA]);   // may be null if 'NO ETA' or blank
+    const etd     = parseDate(r[C_ETD]);
+    // Preferred display date: if an ETD exists, use ETD + 2 weeks (14 days) as the
+    // estimated ETA — this takes priority over the raw ETA. Only fall back to the
+    // raw ETA when there is no ETD at all.
+    let eta = realEta;
     let etaEstimated = false;
-    if (!eta && etd) {
+    if (etd) {
       eta = new Date(etd.getTime() + 14 * 24 * 60 * 60 * 1000);
       etaEstimated = true;
     }
@@ -809,7 +814,7 @@ function parseAll() {
     // Include if item and qty > 0, even if ETA is missing
     if (item && qty > 0) {
       if (!PO_BY_ITEM[item]) PO_BY_ITEM[item] = [];
-      PO_BY_ITEM[item].push({ qty, eta, etd, supplier: supp, order: ord, desc,
+      PO_BY_ITEM[item].push({ qty, eta, etd, realEta, supplier: supp, order: ord, desc,
         noETA: !eta, etaEstimated  // flag rows with estimated ETA for display
       });
     }
@@ -1422,6 +1427,14 @@ function netRequirements(tree, parentDemand, stockOverride) {
           }
           return null;
         })(),
+        resDateEstimated: (() => {
+          let cumul = avail;
+          for (const p of (PO_BY_ITEM[node.comp]||[]).sort((a,b)=>(a.eta||new Date(9e15))-(b.eta||new Date(9e15)))) {
+            if (!p.eta) continue;
+            cumul += p.qty; if (cumul >= gross) return !!p.etaEstimated;
+          }
+          return false;
+        })(),
       });
 
       if (node.children.length > 0) {
@@ -1935,7 +1948,7 @@ function renderShortage() {
 
   if (!demand) {
     document.getElementById('sh-body').innerHTML =
-      `<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--muted)">No demand for this product.</td></tr>`;
+      `<tr><td colspan="15" style="padding:20px;text-align:center;color:var(--muted)">No demand for this product.</td></tr>`;
     addColFilters('tbl-shortage'); return;
   }
 
@@ -1944,7 +1957,7 @@ function renderShortage() {
 
   if (!shortages.length) {
     document.getElementById('sh-body').innerHTML =
-      `<tr><td colspan="14" style="padding:20px;text-align:center;color:var(--green)">✓ No shortages — all components covered.</td></tr>`;
+      `<tr><td colspan="15" style="padding:20px;text-align:center;color:var(--green)">✓ No shortages — all components covered.</td></tr>`;
     addColFilters('tbl-shortage'); return;
   }
 
@@ -1972,7 +1985,7 @@ function renderShortage() {
     const isSARow = s.isSA;
     const resFg   = !s.resDate ? 'var(--red)' : daysDiff(s.resDate)<0?'var(--red)':daysDiff(s.resDate)<=30?'var(--orange)':'var(--green)';
     const poLines = s.pos?.map(p =>
-      `<span style="font-size:.7rem;color:var(--muted)">${p.order}: ${Math.round(p.qty)} by ${fd(p.eta)}</span>`
+      `<span style="font-size:.7rem;color:var(--muted)">${p.order}: ${Math.round(p.qty)} by ${p.eta?(p.etaEstimated?`(${fd(p.eta)})<span style="font-size:.6rem;margin-left:2px" title="Estimated as ETD + 2 weeks">est</span>`:fd(p.eta)):'No ETA'}</span>`
     ).join('<br>') || '';
     const supp = s.supplier || PO_BY_ITEM[s.comp]?.[0]?.supplier || COMP_SUPPLIER[s.comp] || '—';
     const splitVal  = SPLIT_LIMITS[s.comp] || '';
@@ -2013,11 +2026,12 @@ function renderShortage() {
       <td style="text-align:right">${s.qpa}</td>
       <td style="text-align:right">${s.gross}</td>
       <td style="text-align:right">${Math.round(s.stock)}</td>
+      <td style="text-align:right;font-weight:700;color:${(s.qpa>0?Math.floor(s.stock/s.qpa):0) < (prodResult.total_qty||0) ? 'var(--orange)' : 'var(--green)'}" title="Max units of ${prodResult.prod} buildable from this component's available stock (${Math.round(s.stock)} ÷ QPA ${s.qpa})">${s.qpa>0?Math.floor(s.stock/s.qpa):'—'}</td>
       <td style="text-align:right;color:${s.saFree>0?'var(--sim)':''}">${s.saFree>0?Math.round(s.saFree):'—'}</td>
       <td style="text-align:right;font-weight:700;color:${shortColor}">${s.net}</td>
       <td style="text-align:right;color:${s.poAll>0?'var(--green)':''}">${s.poAll?Math.round(s.poAll):'—'}</td>
       <td style="text-align:right;font-weight:700;color:${s.netWithPO>0?'var(--red)':'var(--green)'}">${s.netWithPO>0?s.netWithPO:'✓'}</td>
-      <td style="font-weight:700;color:${resFg};font-size:.78rem">${s.resDate?fd(s.resDate):'—'}</td>
+      <td style="font-weight:700;color:${resFg};font-size:.78rem">${s.resDate?(s.resDateEstimated?`(${fd(s.resDate)})<span style="font-size:.6rem;color:var(--muted);margin-left:2px" title="Resolving PO ETA is estimated (ETD + 2 weeks)">est</span>`:fd(s.resDate)):'—'}</td>
       <td style="font-size:.75rem"><span class="trunc" title="${supp}">${supp}</span></td>
       <td style="font-size:.7rem;color:var(--muted)">${poLines||'<span style="color:var(--red)">No POs</span>'}</td>
       <td onclick="event.stopPropagation()">
@@ -2142,7 +2156,8 @@ function renderPO() {
       <td><span class="trunc" title="${p.desc}">${p.desc||'—'}</span></td>
       <td style="font-size:.75rem;color:var(--muted)">${p.order}</td>
       <td style="text-align:right;font-weight:700">${Math.round(p.qty)}</td>
-      <td style="color:${dc};font-weight:700">${p.eta?(p.etaEstimated?`(${fd(p.eta)})`:fd(p.eta)):'<span style="color:var(--orange)">No ETA</span>'}${p.etaEstimated?'<span style="font-size:.62rem;color:var(--muted);margin-left:3px" title="Estimated as ETD + 2 weeks">est</span>':''}</td>
+      <td style="font-size:.8rem;color:var(--muted)">${p.etd?fd(p.etd):'—'}</td>
+      <td style="color:${dc};font-weight:700">${p.eta?(p.etaEstimated?`(${fd(p.eta)})`:fd(p.eta)):'<span style="color:var(--orange)">No ETA</span>'}${p.etaEstimated?`<span style="font-size:.62rem;color:var(--muted);margin-left:3px" title="Estimated as ETD (${p.etd?fd(p.etd):'?'}) + 2 weeks${p.realEta?'. Raw ETA on PO: '+fd(p.realEta):''}">est</span>`:''}</td>
       <td style="text-align:right;font-weight:700;color:${dc}">${p.eta&&days!==null?days+'d':'—'}</td>
       <td style="font-size:.75rem"><span class="trunc" title="${p.supplier}">${p.supplier||'—'}</span></td>
       <td>${ub}</td>
@@ -2153,7 +2168,7 @@ function renderPO() {
           onblur="this.style.borderBottomColor='var(--border)'">
       </td>
     </tr>`;
-  }).join('') || `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--muted)">No open POs found.</td></tr>`;
+  }).join('') || `<tr><td colspan="10" style="padding:20px;text-align:center;color:var(--muted)">No open POs found.</td></tr>`;
   addColFilters('tbl-po');
 }
 
@@ -2434,19 +2449,55 @@ function exportCSV(type) {
               r.status,r.phantomOnlyOverride?'YES':'',noteVal].map(csvC).join(',') + '\r\n';
     });
   } else if (type==='shortage') {
-    const prod = RESULTS.find(r=>r.prod===document.getElementById('sh-prod').value);
-    if (!prod) return;
-    csv = ['Product','Component','Description','Make/Buy','Phantom','E2S','QPA','Need Total','On Hand','Short Now','PO Covers','Remaining','Resolved By','Supplier','Notes'].map(csvC).join(',') + '\r\n';
-    prod.compAnalysis.filter(c=>(c.shortActive||0)+(c.shortPlanned||0)>0).forEach(c => {
-      const totalShort = (c.shortActive||0) + (c.shortPlanned||0);
-      const poCover = Math.round(Math.min(c.poAll, totalShort));
-      const rem     = Math.max(0, Math.round(totalShort - c.poAll));
-      const supp    = c.supplier || PO_BY_ITEM[c.comp]?.[0]?.supplier || '—';
-      const isPh    = /phantom/i.test(c.stype||'') ? 'YES' : '';
-      const mb      = c.makeBuy || '';
-      const isE2S   = E2S_SET.has(c.comp) ? 'YES' : '';
-      const note    = NOTES[`sh_${prod.prod}_${c.comp}_0`] || sharedNoteFor(c.comp) || '';
-      csv += [prod.prod,c.comp,c.desc,mb,isPh,isE2S,c.qpa,c.need,Math.round(c.effectiveOnHand||c.onHand),Math.round(totalShort),poCover,rem,c.resDate?fd(c.resDate):'Unresolved',supp,note].map(csvC).join(',') + '\r\n';
+    // Export must mirror EXACTLY what the Shortages tab displays — same product,
+    // same demand, same stock snapshot, and the same tree (all rows incl. SA nodes
+    // and their children). We therefore rebuild via netRequirements just like
+    // renderShortage does, rather than using the flat compAnalysis (which omits
+    // sub-assembly tree rows and can diverge from the on-screen table).
+    const mode    = document.getElementById('sh-mode')?.value || 'demand';
+    const selProd = document.getElementById('sh-prod')?.value;
+    let prodResult, demand, stockOverride, prodName;
+    if (mode === 'any') {
+      prodName = selProd;
+      demand   = Math.max(1, parseFloat(document.getElementById('sh-qty')?.value) || 1);
+      stockOverride = null;
+      prodResult = RESULTS.find(r => r.prod === selProd) || { prod: selProd, total_qty: demand };
+    } else {
+      prodResult = RESULTS.find(r => r.prod === selProd);
+      if (!prodResult) return;
+      prodName = prodResult.prod;
+      demand   = prodResult.total_qty;
+      stockOverride = prodResult.effectiveStockSnapshot;
+    }
+    if (!demand) return;
+
+    const tree      = buildBOMTree(prodName);
+    const shortages = netRequirements(tree, demand, stockOverride);
+
+    csv = ['Product','Component','Description','Type/Level','QPA','Gross Need','Stock','Limit',
+           'SA WO Free','Net Short','PO Total','Remaining','Resolved By','Supplier','Open POs','Notes']
+          .map(csvC).join(',') + '\r\n';
+
+    // Flatten the whole tree (parents + children) — every row the table shows
+    const flatten = (items, depth) => {
+      let out = [];
+      for (const s of items) {
+        out.push({ ...s, depth });
+        if (s.childShortages?.length) out = out.concat(flatten(s.childShortages, depth+1));
+      }
+      return out;
+    };
+    flatten(shortages, 0).forEach(s => {
+      const typeLevel = `${s.depth>0?'':'L'+s.lvl} ${s.stype?String(s.stype).replace('2400_','').replace('PlannedProductionOrder','SA').replace('Purchase','BUY'):''}`.trim();
+      const limit     = s.qpa>0 ? Math.floor(s.stock / s.qpa) : '';
+      const poLines   = (s.pos||[]).map(p=>`${p.order}: ${Math.round(p.qty)} by ${p.eta?(p.etaEstimated?`(${fd(p.eta)}) est`:fd(p.eta)):'No ETA'}`).join(' | ');
+      const supp      = s.supplier || PO_BY_ITEM[s.comp]?.[0]?.supplier || COMP_SUPPLIER[s.comp] || '';
+      const note      = NOTES[`sh_${prodName}_${s.comp}_${s.depth}`] || sharedNoteFor(s.comp) || '';
+      const resDateStr = s.resDate ? (s.resDateEstimated ? `(${fd(s.resDate)}) est` : fd(s.resDate)) : 'Unresolved';
+      csv += [prodName, s.comp, s.desc, typeLevel, s.qpa, s.gross, Math.round(s.stock), limit,
+              s.saFree>0?Math.round(s.saFree):'', s.net, s.poAll?Math.round(s.poAll):'',
+              s.netWithPO>0?s.netWithPO:'0', resDateStr, supp, poLines, note]
+             .map(csvC).join(',') + '\r\n';
     });
   } else if (type==='shared') {
     csv = ['Component','Description','On Hand','Total Need','Total Short','# Products','Used By'].map(csvC).join(',') + '\r\n';
@@ -2465,12 +2516,16 @@ function exportCSV(type) {
       csv += [c.comp,c.desc,Math.round(c.onHand),totalNeed,totalShort,c.products.length,usedBy].map(csvC).join(',') + '\r\n';
     });
   } else if (type==='po') {
-    csv = ['Item','Description','Order','Back Order','ETA','Days Away','Supplier','Unblocks'].map(csvC).join(',') + '\r\n';
+    csv = ['Item','Description','Order','Back Order','ETD','ETA','ETA Estimated','Days Away','Supplier','Unblocks'].map(csvC).join(',') + '\r\n';
     Object.entries(PO_BY_ITEM).forEach(([item,pos]) => {
       pos.forEach(p => {
         const unblocks = RESULTS.filter(r=>r.blocking.some(c=>c.comp===item)).map(r=>r.prod).join(' | ');
         const days = p.eta ? daysDiff(p.eta) : null;
-        csv += [item,p.desc||COMP_DESC[item]||'',p.order,Math.round(p.qty),p.eta?fd(p.eta):'No ETA',days!==null?days:'',p.supplier,unblocks].map(csvC).join(',') + '\r\n';
+        csv += [item,p.desc||COMP_DESC[item]||'',p.order,Math.round(p.qty),
+                p.etd?fd(p.etd):'',
+                p.eta?fd(p.eta):'No ETA',
+                p.etaEstimated?'YES (ETD+2wk)':'',
+                days!==null?days:'',p.supplier,unblocks].map(csvC).join(',') + '\r\n';
       });
     });
   } else if (type==='bom') {
