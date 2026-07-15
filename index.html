@@ -170,6 +170,52 @@ tbody tr:first-child td{border-top:none}
 .b-make{background:rgba(255,140,0,.14);color:#ff8c00;font-size:.65rem;padding:1px 6px;border-radius:8px;margin-left:5px;font-weight:700}
 .b-phantom{background:rgba(167,139,250,.1);color:var(--sim);font-size:.65rem;padding:1px 6px;border-radius:8px;margin-left:5px}
 .b-e2s{background:rgba(56,189,248,.14);color:var(--accent);font-size:.65rem;padding:1px 6px;border-radius:8px;margin-left:5px;font-weight:700}
+/* ── Insights cards ── */
+.ins-grid{display:grid;grid-template-columns:1fr;gap:14px}
+.ins-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px}
+.ins-card h3{margin:0 0 4px;font-size:.95rem;display:flex;align-items:center;gap:7px}
+.ins-sub{font-size:.74rem;color:var(--muted);margin-bottom:11px}
+.ins-headline{background:var(--grn-bg);border-left:3px solid var(--accent);padding:9px 12px;border-radius:5px;
+  font-size:.84rem;margin-bottom:12px;line-height:1.5}
+.ins-headline b{color:var(--accent)}
+.ins-tbl{width:100%;border-collapse:collapse;font-size:.79rem}
+.ins-tbl th{text-align:left;font-size:.68rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);
+  font-weight:600;padding:5px 8px;border-bottom:1px solid var(--border)}
+.ins-tbl td{padding:6px 8px;border-bottom:1px solid rgba(0,0,0,.05)}
+.ins-tbl tr:last-child td{border-bottom:none}
+.ins-tbl tr:hover td{background:rgba(2,132,199,.04)}
+.ins-comp{font-family:monospace;font-weight:700;color:var(--accent2);cursor:pointer}
+.ins-comp:hover{text-decoration:underline}
+.ins-bar{height:5px;background:var(--border);border-radius:3px;overflow:hidden;min-width:60px}
+.ins-bar-f{height:100%;background:var(--accent);border-radius:3px}
+.ins-none{color:var(--muted);font-size:.8rem;padding:10px 2px;font-style:italic}
+.ins-late{color:var(--red);font-weight:700}
+.ins-ok{color:var(--green);font-weight:700}
+.ins-warn{color:var(--orange);font-weight:700}
+.ins-milestone{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid rgba(0,0,0,.05)}
+.ins-milestone:last-child{border-bottom:none}
+.ins-date{font-weight:700;font-size:.8rem;min-width:92px;color:var(--accent)}
+/* ── Can We Build? ── */
+.cwb-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px}
+.cwb-stat{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:11px 13px;cursor:pointer;transition:all .15s}
+.cwb-stat:hover{border-color:var(--accent);transform:translateY(-1px)}
+.cwb-n{font-size:1.5rem;font-weight:800;line-height:1.1}
+.cwb-l{font-size:.72rem;color:var(--text);margin-top:3px;line-height:1.35}
+.cwb-l span{color:var(--muted);font-size:.68rem}
+.cwb-head{display:flex;align-items:center;gap:9px;margin-bottom:9px}
+.cwb-prod{font-family:monospace;font-weight:800;font-size:.92rem;color:var(--accent2)}
+.cwb-desc{font-size:.8rem;color:var(--muted)}
+.cwb-qty{font-size:.8rem;font-weight:700;color:var(--text);white-space:nowrap}
+.cwb-sect{font-size:.73rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);
+  font-weight:700;margin:13px 0 6px}
+.cwb-warn{background:var(--red-bg);border-left:3px solid var(--red);padding:7px 11px;
+  border-radius:5px;font-size:.79rem;margin-bottom:4px}
+.cwb-due{font-size:.76rem;color:var(--muted);margin-bottom:4px}
+.cwb-clear{background:var(--grn-bg);color:var(--green);padding:8px 11px;border-radius:5px;
+  font-size:.79rem;margin-top:10px;font-weight:600}
+.cwb-tight{background:var(--red);color:#fff;font-size:.6rem;padding:1px 5px;border-radius:7px;
+  margin-left:5px;font-weight:800;letter-spacing:.03em}
 .b-full-phantom{background:var(--grn-bg);color:var(--green);font-size:.62rem;padding:1px 5px;border-radius:7px;margin-left:4px}
 </style>
 </head>
@@ -232,6 +278,7 @@ tbody tr:first-child td{border-top:none}
 <div id="main">
   <div id="nav">
     <button class="tab-btn active" onclick="showTab('plan',this)">📋 Build Plan</button>
+    <button class="tab-btn" onclick="showTab('insights',this)">✅ Can We Build?</button>
     <button class="tab-btn" onclick="showTab('shortage',this)">📉 Shortages</button>
     <button class="tab-btn" onclick="showTab('shared',this)">🔀 Shared Components</button>
     <button class="tab-btn" onclick="showTab('po',this)">🚚 Open POs</button>
@@ -383,6 +430,31 @@ tbody tr:first-child td{border-top:none}
         <th style="width:160px">Notes</th>
       </tr></thead><tbody id="po-body"></tbody></table>
     </div>
+  </div>
+
+  <!-- CAN WE BUILD? -->
+  <div id="tab-insights" class="tab-panel">
+    <div class="toolbar">
+      <select id="cwb-filter" onchange="buildInsights()" style="width:190px">
+        <option value="all">All products</option>
+        <option value="now">✅ Can build now (in full)</option>
+        <option value="partial">🟡 Can build partially</option>
+        <option value="later">🕐 Only after POs arrive</option>
+        <option value="never">🔴 Cannot build at all</option>
+        <option value="late">⚠️ Will miss due date</option>
+      </select>
+      <input type="text" id="cwb-search" placeholder="Search product…" oninput="buildInsights()" style="width:170px">
+      <select id="cwb-sort" onchange="buildInsights()" style="width:160px">
+        <option value="rank">Sort: priority</option>
+        <option value="due">Sort: due date</option>
+        <option value="worst">Sort: worst first</option>
+        <option value="blockers">Sort: fewest blockers</option>
+      </select>
+      <span id="cwb-count" style="font-size:.76rem;color:var(--muted)"></span>
+      <button class="ml-auto" onclick="exportCSV('insights')">⬇ Export</button>
+    </div>
+    <div id="cwb-summary"></div>
+    <div id="insights-body" style="padding:4px 0"></div>
   </div>
 
   <!-- SUMMARY -->
@@ -852,6 +924,7 @@ function parseAll() {
   const BC_QPA = qpaIndices.length >= 2 ? qpaIndices[1] : (qpaIndices[0] ?? bC('quantity per') ?? 6);
   // Supplier: present in old file, absent in new
   const BC_SUPP = bC('supplier') ?? -1;
+  const BC_MB   = bC('make/buy') ?? bC('makebuy') ?? -1;
   // col0=FlatBOM#, col3=level, col4=FlatComp, col5=desc, col10=QPA, col26=supplier
   bomRows.slice(1).forEach(r => {
     const prod = String(r[BC_PROD] || '').trim();
@@ -860,6 +933,8 @@ function parseAll() {
     const desc = String(r[BC_DESC] || '').trim();
     const qpa  = numVal(r[BC_QPA]);
     const supp = BC_SUPP >= 0 ? String(r[BC_SUPP] || '').trim() : '';
+    const stype  = String(r[BC_SUPP_TYPE] || '').trim();          // 2400_PBOM / 2400_Phantom
+    const makeBuy= BC_MB >= 0 ? String(r[BC_MB] || '').trim() : ''; // Make / Buy
     if (!prod || !comp) return;
     if (lvl === 0) {
       PROD_DESC[prod] = desc;
@@ -879,7 +954,7 @@ function parseAll() {
         arr[at].qpa += qpa;                           // sum absolute QPAs across paths
       } else {
         arr._idx.set(comp, arr.length);
-        arr.push({ comp, desc, qpa, supplier: supp });
+        arr.push({ comp, desc, qpa, supplier: supp, stype, makeBuy });
       }
       COMP_DESC[comp] = COMP_DESC[comp] || desc;
       if (supp) COMP_SUPPLIER[comp] = COMP_SUPPLIER[comp] || supp;
@@ -1651,6 +1726,306 @@ function setSharedNote(comp, value) {
 // Look up the shared note for a component (used across all tabs).
 function sharedNoteFor(comp) {
   return SHARED_NOTES[comp] || '';
+}
+
+// ══════════════════════════════════════
+// CAN WE BUILD? — direct production answers
+// ══════════════════════════════════════
+
+// Is this component a real constraint? Phantoms have no stocking point and E2S parts
+// are supplied by the customer — neither can genuinely block production.
+function isRealConstraint(c) {
+  if (!c || !c.comp) return false;
+  if (E2S_SET.has(c.comp)) return false;
+  if (/phantom/i.test(c.stype || '')) return false;
+  return true;
+}
+
+// For ONE product, answer: how many can we build now, how many later, when, and what blocks it.
+function answerForProduct(r) {
+  const bom  = (r.compAnalysis || []).filter(isRealConstraint);
+  const want = r.total_qty || 0;
+  const due  = r.first_active_due || r.first_due || null;
+
+  if (!bom.length || !want) {
+    return { prod:r.prod, desc:r.desc, want, due, rank:r.rank,
+             canNow:want, canEver:want, fullDate:TODAY, blockers:[], verdict:'now',
+             steps:[], missDays:null };
+  }
+
+  // How many units can each component support, using stock (+ free SA WO supply) only?
+  const unitsFrom = (c, extraPo=0) =>
+    c.qpa > 0 ? Math.floor(((c.effectiveOnHand || 0) + extraPo) / c.qpa) : Infinity;
+
+  // BUILD NOW = limited by the tightest component on stock alone
+  const canNow = Math.min(want, ...bom.map(c => unitsFrom(c)));
+
+  // Walk forward through every PO ETA affecting this product's components.
+  // At each date, recompute how many units become buildable.
+  const dates = new Set();
+  bom.forEach(c => (PO_BY_ITEM[c.comp] || []).forEach(p => {
+    if (p.eta && p.eta > TODAY) dates.add(p.eta.getTime());
+  }));
+  const timeline = [...dates].sort((a,b)=>a-b).map(t => new Date(t));
+
+  const buildableBy = (cutoff) => Math.min(want, ...bom.map(c => {
+    const po = (PO_BY_ITEM[c.comp] || [])
+      .filter(p => p.eta && p.eta <= cutoff)
+      .reduce((s,p) => s + p.qty, 0);
+    return unitsFrom(c, po);
+  }));
+
+  // Milestone steps: only dates where the buildable quantity actually increases
+  const steps = [];
+  let running = canNow;
+  let fullDate = canNow >= want ? TODAY : null;
+  for (const d of timeline) {
+    const q = buildableBy(d);
+    if (q > running) {
+      // Which components arriving on this date unlocked more units?
+      const drivers = bom
+        .filter(c => (PO_BY_ITEM[c.comp] || []).some(p => p.eta && p.eta.getTime() === d.getTime()))
+        .map(c => c.comp);
+      steps.push({ date:d, qty:q, gained:q - running, drivers:[...new Set(drivers)].slice(0,3) });
+      running = q;
+      if (!fullDate && q >= want) fullDate = d;
+    }
+  }
+  const canEver = running;   // best achievable once ALL open POs have landed
+
+  // BLOCKERS = components that cannot cover the full demand from stock alone.
+  // Report what each one limits us to, and when (if ever) it gets resolved.
+  const blockers = bom
+    .map(c => {
+      const need    = want * c.qpa;
+      const have    = c.effectiveOnHand || 0;
+      const shortBy = Math.max(0, need - have);
+      if (shortBy <= 0) return null;                     // stock covers it — not a blocker
+      const pos     = (PO_BY_ITEM[c.comp] || []).filter(p => p.eta).sort((a,b)=>a.eta-b.eta);
+      const poQty   = (PO_BY_ITEM[c.comp] || []).reduce((s,p)=>s+p.qty,0);
+      // Earliest date this component alone can cover the full need
+      let cum = have, clearDate = null;
+      for (const p of pos) { cum += p.qty; if (cum >= need) { clearDate = p.eta; break; } }
+      const isMake  = /^make$/i.test(c.makeBuy || '');
+      return {
+        comp: c.comp, desc: c.desc || COMP_DESC[c.comp] || '',
+        qpa: c.qpa, need: Math.round(need), have: Math.round(have),
+        shortBy: Math.round(shortBy),
+        limitsTo: unitsFrom(c),                          // max units this part allows now
+        poQty: Math.round(poQty), clearDate, isMake,
+        supplier: c.supplier || pos[0]?.supplier || COMP_SUPPLIER[c.comp] || '',
+        // Why is it still a problem?
+        fix: clearDate ? 'PO covers it'
+           : poQty > 0 ? 'PO too small'
+           : isMake    ? 'Raise a Work Order'
+           : 'Raise a PO'
+      };
+    })
+    .filter(Boolean)
+    .sort((a,b) => a.limitsTo - b.limitsTo || b.shortBy - a.shortBy);
+
+  // Verdict
+  let verdict;
+  if (canNow >= want)            verdict = 'now';        // can build the whole order today
+  else if (canEver >= want)      verdict = 'later';      // full order possible once POs land
+  else if (canNow > 0)           verdict = 'partial';    // some now, never the full order
+  else if (canEver > 0)          verdict = 'partial';    // none now, some later
+  else                           verdict = 'never';      // cannot build a single unit, ever
+
+  // Will it miss the due date *because of material availability*?
+  // An order whose due date has already passed but which is fully buildable today is
+  // simply overdue — not a material shortage — so we don't flag it as a supply risk.
+  let missDays = null;
+  if (due) {
+    if (!fullDate) {
+      missDays = Infinity;                                  // never ready in full
+    } else if (fullDate > due && fullDate > TODAY) {
+      missDays = Math.ceil((fullDate - due) / 86400000);    // waiting on material
+    }
+  }
+  const overdue = !!(due && due < TODAY && canNow >= want); // buildable, but past its date
+
+  return { prod:r.prod, desc:r.desc, want, due, rank:r.rank, status:r.status,
+           canNow, canEver, fullDate, steps, blockers, verdict, missDays, overdue };
+}
+
+// Compute answers for every product
+function computeInsights() {
+  const answers = RESULTS.map(answerForProduct);
+  return {
+    answers,
+    nNow:     answers.filter(a=>a.verdict==='now').length,
+    nLater:   answers.filter(a=>a.verdict==='later').length,
+    nPartial: answers.filter(a=>a.verdict==='partial').length,
+    nNever:   answers.filter(a=>a.verdict==='never').length,
+    nLate:    answers.filter(a=>a.missDays!==null && a.missDays>0).length,
+    total:    answers.length,
+  };
+}
+
+function buildInsights() {
+  const el = document.getElementById('insights-body');
+  if (!RESULTS.length) { el.innerHTML = `<div class="ins-none">Run the analysis first.</div>`; return; }
+
+  const I      = computeInsights();
+  const filter = document.getElementById('cwb-filter')?.value || 'all';
+  const srch   = (document.getElementById('cwb-search')?.value || '').toLowerCase();
+  const sortBy = document.getElementById('cwb-sort')?.value || 'rank';
+
+  // Top summary strip — the headline answer
+  document.getElementById('cwb-summary').innerHTML = `
+    <div class="cwb-strip">
+      <div class="cwb-stat" onclick="cwbSet('now')">
+        <div class="cwb-n" style="color:var(--green)">${I.nNow}</div>
+        <div class="cwb-l">Can build in full<br><span>today</span></div></div>
+      <div class="cwb-stat" onclick="cwbSet('later')">
+        <div class="cwb-n" style="color:var(--accent)">${I.nLater}</div>
+        <div class="cwb-l">Can build in full<br><span>once POs arrive</span></div></div>
+      <div class="cwb-stat" onclick="cwbSet('partial')">
+        <div class="cwb-n" style="color:var(--orange)">${I.nPartial}</div>
+        <div class="cwb-l">Partial only<br><span>never the full order</span></div></div>
+      <div class="cwb-stat" onclick="cwbSet('never')">
+        <div class="cwb-n" style="color:var(--red)">${I.nNever}</div>
+        <div class="cwb-l">Cannot build<br><span>not a single unit</span></div></div>
+      <div class="cwb-stat" onclick="cwbSet('late')">
+        <div class="cwb-n" style="color:var(--red)">${I.nLate}</div>
+        <div class="cwb-l">Will miss<br><span>their due date</span></div></div>
+    </div>`;
+
+  // Filter
+  let list = I.answers.filter(a => {
+    if (srch && !(`${a.prod} ${a.desc}`.toLowerCase().includes(srch))) return false;
+    if (filter === 'all')  return true;
+    if (filter === 'late') return a.missDays !== null && a.missDays > 0;
+    return a.verdict === filter;
+  });
+
+  // Sort
+  const sorters = {
+    rank:     (a,b) => a.rank - b.rank,
+    due:      (a,b) => (a.due||new Date(9e15)) - (b.due||new Date(9e15)),
+    worst:    (a,b) => (a.canNow/Math.max(1,a.want)) - (b.canNow/Math.max(1,b.want)),
+    blockers: (a,b) => a.blockers.length - b.blockers.length,
+  };
+  list = list.sort(sorters[sortBy] || sorters.rank);
+
+  document.getElementById('cwb-count').textContent = `${list.length} product${list.length===1?'':'s'}`;
+
+  if (!list.length) { el.innerHTML = `<div class="ins-none">No products match this filter.</div>`; return; }
+
+  const VERDICT = {
+    now:     { icon:'✅', color:'var(--green)',  bg:'var(--grn-bg)' },
+    later:   { icon:'🕐', color:'var(--accent)', bg:'rgba(2,132,199,.08)' },
+    partial: { icon:'🟡', color:'var(--orange)', bg:'var(--ora-bg)' },
+    never:   { icon:'🔴', color:'var(--red)',    bg:'var(--red-bg)' },
+  };
+
+  el.innerHTML = list.map(a => {
+    const V = VERDICT[a.verdict];
+
+    // ── The answer, in one sentence ──
+    let answer;
+    if (a.verdict === 'now') {
+      answer = `Can build <b>all ${a.want.toLocaleString()}</b> units <b>right now</b> from stock.`;
+    } else if (a.verdict === 'later') {
+      answer = `Can build <b>${a.canNow.toLocaleString()}</b> now.
+                All <b>${a.want.toLocaleString()}</b> by <b>${fd(a.fullDate)}</b> once POs arrive.`;
+    } else if (a.verdict === 'partial') {
+      answer = `Can build <b>${a.canNow.toLocaleString()}</b> now`
+             + (a.canEver > a.canNow ? `, rising to <b>${a.canEver.toLocaleString()}</b> once all POs land` : '')
+             + `. <b>Never reaches the full ${a.want.toLocaleString()}</b> — short by
+                ${(a.want - a.canEver).toLocaleString()} units.`;
+    } else {
+      answer = `<b>Cannot build a single unit</b>, even after every open PO arrives.`;
+    }
+
+    // Due-date warning
+    const dueWarn = (a.missDays !== null && a.missDays > 0)
+      ? `<div class="cwb-warn">⚠️ Due <b>${fd(a.due)}</b> —
+          ${a.missDays === Infinity
+            ? `will <b>never</b> be ready in full`
+            : `full quantity not ready until <b>${fd(a.fullDate)}</b> (<b>${a.missDays} days late</b>)`}.</div>`
+      : a.overdue
+        ? `<div class="cwb-due" style="color:var(--orange)">Due ${fd(a.due)} — <b>date already passed</b>,
+            but material is available: build it now.</div>`
+      : (a.due ? `<div class="cwb-due">Due ${fd(a.due)} — on track.</div>` : '');
+
+    // ── When can we build more? (timeline steps) ──
+    const stepsHtml = a.steps.length ? `
+      <div class="cwb-sect">When more becomes available</div>
+      <table class="ins-tbl"><thead><tr>
+        <th style="width:100px">Date</th><th style="width:110px">Can build</th>
+        <th style="width:70px">Gain</th><th>Waiting on</th>
+      </tr></thead><tbody>
+      ${a.steps.map(s=>`<tr>
+        <td style="font-weight:700;color:var(--accent)">${fd(s.date)}</td>
+        <td><b>${s.qty.toLocaleString()}</b> / ${a.want.toLocaleString()}</td>
+        <td class="ins-ok">+${s.gained.toLocaleString()}</td>
+        <td style="font-family:monospace;font-size:.74rem;color:var(--muted)">${s.drivers.join(', ')}</td>
+      </tr>`).join('')}
+      </tbody></table>` : '';
+
+    // ── What's blocking it? ──
+    const blockHtml = a.blockers.length ? `
+      <div class="cwb-sect">What's blocking it <span style="font-weight:400;color:var(--muted)">
+        (${a.blockers.length} component${a.blockers.length===1?'':'s'} — the tightest one sets the limit)</span></div>
+      <table class="ins-tbl"><thead><tr>
+        <th>Component</th><th>Description</th>
+        <th style="text-align:right">Need</th><th style="text-align:right">Have</th>
+        <th style="text-align:right">Short</th><th style="text-align:right">Limits to</th>
+        <th>Clears</th><th>Action</th><th>Supplier</th>
+      </tr></thead><tbody>
+      ${a.blockers.slice(0,10).map((b,i)=>`<tr${i===0?' style="background:var(--red-bg)"':''}>
+        <td><span class="ins-comp" onclick="jumpToComponent('${b.comp}')">${b.comp}</span>
+            ${i===0?'<span class="cwb-tight">TIGHTEST</span>':''}
+            ${b.isMake?'<span class="b-make">MAKE</span>':''}</td>
+        <td><span class="trunc" title="${b.desc}">${b.desc.substring(0,28)}</span></td>
+        <td style="text-align:right">${b.need.toLocaleString()}</td>
+        <td style="text-align:right">${b.have.toLocaleString()}</td>
+        <td style="text-align:right;color:var(--red);font-weight:700">${b.shortBy.toLocaleString()}</td>
+        <td style="text-align:right;font-weight:700">${b.limitsTo.toLocaleString()} units</td>
+        <td>${b.clearDate
+              ? `<span class="ins-ok">${fd(b.clearDate)}</span>`
+              : `<span class="ins-late">Never</span>`}</td>
+        <td style="font-size:.74rem">${b.clearDate
+              ? `<span style="color:var(--muted)">${b.fix}</span>`
+              : `<span class="ins-late">${b.fix}</span>`}</td>
+        <td style="font-size:.73rem;color:var(--muted)">
+          <span class="trunc" title="${b.supplier}">${(b.supplier||'—').substring(0,16)}</span></td>
+      </tr>`).join('')}
+      </tbody></table>
+      ${a.blockers.length>10?`<div style="font-size:.72rem;color:var(--muted);margin-top:6px">
+        + ${a.blockers.length-10} more blocking component(s) — see Export.</div>`:''}`
+      : `<div class="cwb-clear">✅ No blocking components — stock covers every part.</div>`;
+
+    return `
+    <div class="ins-card" style="border-left:4px solid ${V.color}">
+      <div class="cwb-head">
+        <span style="font-size:1.15rem">${V.icon}</span>
+        <span class="cwb-prod">${a.prod}</span>
+        <span class="cwb-desc">${(a.desc||'').substring(0,48)}</span>
+        <span class="ml-auto cwb-qty">${a.canNow.toLocaleString()} / ${a.want.toLocaleString()} units</span>
+      </div>
+      <div class="ins-headline" style="background:${V.bg};border-left-color:${V.color}">${answer}</div>
+      ${dueWarn}
+      ${stepsHtml}
+      ${blockHtml}
+    </div>`;
+  }).join('');
+}
+
+// Quick filter from the summary strip
+function cwbSet(v) {
+  const s = document.getElementById('cwb-filter');
+  if (s) { s.value = v; buildInsights(); }
+}
+
+// Jump from a blocker straight to that component in Shared Components
+function jumpToComponent(comp) {
+  const btn = [...document.querySelectorAll('.tab-btn')].find(b=>/Shared Components/.test(b.textContent));
+  if (btn) showTab('shared', btn);
+  const s = document.getElementById('sc-search');
+  if (s) { s.value = comp; renderShared(); }
 }
 
 function initUI() {
@@ -2499,6 +2874,39 @@ function exportCSV(type) {
               s.netWithPO>0?s.netWithPO:'0', resDateStr, supp, poLines, note]
              .map(csvC).join(',') + '\r\n';
     });
+  } else if (type==='insights') {
+    // Two-section export answering: (1) what/when/how many, (2) what's blocking each product
+    const I = computeInsights();
+
+    csv  = 'SECTION 1: WHAT CAN BE PRODUCED, WHEN, AND HOW MANY\r\n';
+    csv += ['Product','Description','Verdict','Ordered Qty','Can Build Now','Can Build (all POs in)',
+            'Full Qty Ready By','Due Date','Days Late','# Blocking Components','Build Milestones']
+           .map(csvC).join(',') + '\r\n';
+    I.answers.forEach(a => {
+      const verdict = a.verdict==='now'     ? 'Can build in full today'
+                    : a.verdict==='later'   ? 'Can build in full once POs arrive'
+                    : a.verdict==='partial' ? 'Partial only — never full order'
+                    : 'Cannot build any units';
+      const late = a.missDays===Infinity ? 'Never ready'
+                 : (a.missDays!==null && a.missDays>0) ? a.missDays : '';
+      const ms = a.steps.map(s=>`${fd(s.date)}: ${s.qty} (+${s.gained})`).join(' | ');
+      csv += [a.prod, a.desc, verdict, a.want, a.canNow, a.canEver,
+              a.fullDate?fd(a.fullDate):'Never', a.due?fd(a.due):'', late,
+              a.blockers.length, ms].map(csvC).join(',') + '\r\n';
+    });
+
+    csv += '\r\nSECTION 2: WHAT IS BLOCKING EACH PRODUCT\r\n';
+    csv += ['Product','Product Desc','Ordered Qty','Blocking Component','Component Desc','QPA',
+            'Need','Have','Short By','Limits Build To','PO Qty','Clears On','Action','Supplier','Tightest?']
+           .map(csvC).join(',') + '\r\n';
+    I.answers.forEach(a => {
+      a.blockers.forEach((b,i) => {
+        csv += [a.prod, a.desc, a.want, b.comp, b.desc, b.qpa, b.need, b.have, b.shortBy,
+                b.limitsTo, b.poQty, b.clearDate?fd(b.clearDate):'Never', b.fix, b.supplier,
+                i===0?'TIGHTEST':''].map(csvC).join(',') + '\r\n';
+      });
+    });
+
   } else if (type==='shared') {
     csv = ['Component','Description','On Hand','Total Need','Total Short','# Products','Used By'].map(csvC).join(',') + '\r\n';
     const compMap = {};
@@ -2794,6 +3202,7 @@ function showTab(id, btn) {
   document.getElementById('tab-'+id).classList.add('active');
   btn.classList.add('active');
   if (id==='shared') renderShared();
+  if (id==='insights') buildInsights();
   if (id==='po')     renderPO();
   if (id==='summary') buildSummary();
   if (id==='bom')    renderBOM();
