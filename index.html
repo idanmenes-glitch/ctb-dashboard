@@ -230,10 +230,13 @@ tbody tr:first-child td{border-top:none}
     🏷 E2S list<span id="e2s-count" style="color:var(--sim);margin-left:5px"></span>
     <input type="file" accept=".csv,.txt" style="display:none" onchange="loadE2SList(this)">
   </label>
-  <label id="btn-price" style="display:none;font-size:.72rem;padding:5px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--card);color:var(--text);cursor:pointer" title="Upload a price list (Product/Item + Price columns, CSV or XLSX) to compute revenue per product.">
-    💰 Price list<span id="price-count" style="color:var(--green);margin-left:5px"></span>
-    <input type="file" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="loadPriceList(this)">
-  </label>
+  <div id="btn-price-wrap" style="display:none;align-items:stretch;gap:0">
+    <label id="btn-price" style="font-size:.72rem;padding:5px 12px;border:1px solid var(--border);border-radius:var(--radius) 0 0 var(--radius);background:var(--card);color:var(--text);cursor:pointer" title="Upload a price list (Product/Item + Price columns, CSV or XLSX) to compute revenue per product.">
+      💰 Price list<span id="price-count" style="color:var(--green);margin-left:5px"></span>
+      <input type="file" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="loadPriceList(this)">
+    </label>
+    <button id="btn-price-clear" onclick="clearCachedPrices(event)" title="Clear cached price list" style="display:none;font-size:.72rem;padding:5px 8px;border:1px solid var(--border);border-left:none;border-radius:0 var(--radius) var(--radius) 0;background:var(--card);color:var(--red)">✕</button>
+  </div>
   <button style="display:none" id="btn-reset" onclick="resetApp()">↩ New files</button>
 </div>
 
@@ -595,6 +598,8 @@ let SPLIT_LIMITS = {};    // comp -> max qty per product (split limit)
 let NOTES = {};           // key -> user note (prod, comp, po line, etc.)
 let E2S_SET = new Set();  // components under customer responsibility (E2S) — OK to have no PO
 let PRICE_BY_PROD = {};   // prod -> unit sell price (for revenue-based views; informational only)
+let PRICE_FILE_NAME = null; // name of the last uploaded price list file (for the cache indicator)
+let PRICE_FILE_DATE = null; // date it was uploaded (en-GB string)
 let SHARED_NOTES = {};    // comp -> note set in Shared Components tab (global per component)
 let RAW_BOM_ROWS = [];    // full BOM rows for BOM tab
 let RAW_ORDER_ROWS = [];  // full order rows for Raw Demand tab
@@ -696,11 +701,12 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (cntEl) cntEl.textContent = `(${E2S_SET.size})`;
   }
   // Restore price list from cache
-  const priceMap = await loadPriceFromDB();
-  if (priceMap && Object.keys(priceMap).length) {
-    PRICE_BY_PROD = priceMap;
-    const pcntEl = document.getElementById('price-count');
-    if (pcntEl) pcntEl.textContent = `(${Object.keys(PRICE_BY_PROD).length})`;
+  const priceData = await loadPriceFromDB();
+  if (priceData && priceData.prices && Object.keys(priceData.prices).length) {
+    PRICE_BY_PROD  = priceData.prices;
+    PRICE_FILE_NAME = priceData.fileName || null;
+    PRICE_FILE_DATE = priceData.fileDate || null;
+    updatePriceCacheUI();
   }
   if (cached) {
     try {
@@ -1749,7 +1755,7 @@ function loadPriceList(input) {
         const ws = wb.Sheets[wb.SheetNames[0]];
         rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
       }
-      ingestPriceRows(rows);
+      ingestPriceRows(rows, file.name);
     } catch (err) {
       toast('Price list parse error: ' + err.message);
       console.error(err);
@@ -1759,7 +1765,7 @@ function loadPriceList(input) {
   input.value = ''; // allow re-upload of same file
 }
 
-function ingestPriceRows(rows) {
+function ingestPriceRows(rows, fileName) {
   if (!rows || !rows.length) { toast('Price list is empty'); return; }
   const hdr = (rows[0] || []).map(h => String(h || '').toLowerCase().trim());
   let idCol    = hdr.findIndex(h => /item|product|part|sku/.test(h));
@@ -1775,23 +1781,30 @@ function ingestPriceRows(rows) {
     if (id && !isNaN(price)) { PRICE_BY_PROD[id] = price; n++; }
   });
 
-  savePriceToDB(PRICE_BY_PROD);
-  const cntEl = document.getElementById('price-count');
-  if (cntEl) cntEl.textContent = Object.keys(PRICE_BY_PROD).length ? `(${Object.keys(PRICE_BY_PROD).length})` : '';
+  if (fileName) {
+    PRICE_FILE_NAME = fileName;
+    PRICE_FILE_DATE = new Date().toLocaleDateString('en-GB');
+  }
+  savePriceToDB();
+  updatePriceCacheUI();
   if (RESULTS.length) {
     renderPlan();
     updateKPIs();
     if (document.getElementById('tab-insights')?.classList.contains('active')) buildInsights();
   }
-  toast(`Price list loaded — ${n} price${n===1?'':'s'} set ✓`);
+  toast(`Price list loaded — ${n} price${n===1?'':'s'} set ✓ (cached — no need to re-upload next time)`);
 }
 
-// Persist prices to IndexedDB alongside the other cached lists
-async function savePriceToDB(map) {
+// Persist prices to IndexedDB alongside the other cached lists, along with the source
+// file name/date so the topbar can show what's cached and when it was last updated.
+async function savePriceToDB() {
   try {
     const db = await openBOMDB();
     const tx = db.transaction(BOM_STORE, 'readwrite');
-    tx.objectStore(BOM_STORE).put(map, 'price_list');
+    tx.objectStore(BOM_STORE).put(
+      { prices: PRICE_BY_PROD, fileName: PRICE_FILE_NAME, fileDate: PRICE_FILE_DATE },
+      'price_list'
+    );
     await new Promise((res,rej)=>{tx.oncomplete=res;tx.onerror=rej;});
     db.close();
   } catch(e) { console.warn('Price save failed', e); }
@@ -1805,12 +1818,52 @@ async function loadPriceFromDB() {
   } catch(e) { return null; }
 }
 
+// Reflect current cache state in the topbar: count badge, tooltip with source/date,
+// and show/hide the clear ("✕") button.
+function updatePriceCacheUI() {
+  const n = Object.keys(PRICE_BY_PROD).length;
+  const cntEl = document.getElementById('price-count');
+  if (cntEl) cntEl.textContent = n ? `(${n})` : '';
+  const btn = document.getElementById('btn-price');
+  if (btn) {
+    btn.title = n
+      ? `${n} price${n===1?'':'s'} cached${PRICE_FILE_NAME ? ' — from ' + PRICE_FILE_NAME : ''}${PRICE_FILE_DATE ? ' (' + PRICE_FILE_DATE + ')' : ''}. Click to replace with a new file.`
+      : 'Upload a price list (Product/Item + Price columns, CSV or XLSX) to compute revenue per product.';
+  }
+  const clearBtn = document.getElementById('btn-price-clear');
+  if (clearBtn) clearBtn.style.display = n ? 'inline-block' : 'none';
+}
+
+// Clear the cached price list entirely (both in memory and IndexedDB)
+async function clearCachedPrices(e) {
+  if (e) e.stopPropagation();
+  if (!confirm('Clear the cached price list? This removes all stored prices from this browser.')) return;
+  PRICE_BY_PROD = {};
+  PRICE_FILE_NAME = null;
+  PRICE_FILE_DATE = null;
+  try {
+    const db = await openBOMDB();
+    const tx = db.transaction(BOM_STORE, 'readwrite');
+    tx.objectStore(BOM_STORE).delete('price_list');
+    await new Promise((res,rej)=>{tx.oncomplete=res;tx.onerror=rej;});
+    db.close();
+  } catch(err) { console.warn('Price cache clear failed', err); }
+  updatePriceCacheUI();
+  if (RESULTS.length) {
+    renderPlan();
+    updateKPIs();
+    if (document.getElementById('tab-insights')?.classList.contains('active')) buildInsights();
+  }
+  toast('Price list cache cleared');
+}
+
 // Inline edit of a single product's price (from the Build Plan table)
 function editPrice(prod, value) {
   const v = parseFloat(value);
   if (isNaN(v) || v < 0) delete PRICE_BY_PROD[prod];
   else PRICE_BY_PROD[prod] = v;
-  savePriceToDB(PRICE_BY_PROD);
+  savePriceToDB();
+  updatePriceCacheUI();
   renderPlan();
   updateKPIs();
   if (document.getElementById('tab-insights')?.classList.contains('active')) buildInsights();
@@ -2143,7 +2196,8 @@ function initUI() {
   document.getElementById('main').style.display = 'block';
   document.getElementById('btn-reset').style.display = '';
   document.getElementById('btn-e2s').style.display = 'inline-block';
-  document.getElementById('btn-price').style.display = 'inline-block';
+  document.getElementById('btn-price-wrap').style.display = 'inline-flex';
+  updatePriceCacheUI();
   document.getElementById('topbar-meta').textContent =
     `${RESULTS.length} products · ${new Date().toLocaleDateString('en-GB')}`;
 
