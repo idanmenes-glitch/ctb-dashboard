@@ -230,6 +230,10 @@ tbody tr:first-child td{border-top:none}
     🏷 E2S list<span id="e2s-count" style="color:var(--sim);margin-left:5px"></span>
     <input type="file" accept=".csv,.txt" style="display:none" onchange="loadE2SList(this)">
   </label>
+  <label id="btn-price" style="display:none;font-size:.72rem;padding:5px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--card);color:var(--text);cursor:pointer" title="Upload a price list (Product/Item + Price columns, CSV or XLSX) to compute revenue per product.">
+    💰 Price list<span id="price-count" style="color:var(--green);margin-left:5px"></span>
+    <input type="file" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="loadPriceList(this)">
+  </label>
   <button style="display:none" id="btn-reset" onclick="resetApp()">↩ New files</button>
 </div>
 
@@ -337,6 +341,9 @@ tbody tr:first-child td{border-top:none}
             <th onclick="psort('buildPlannedNow')" style="width:72px">Plan Build</th>
             <th onclick="psort('pctNow')" style="width:65px">% Now</th>
             <th onclick="psort('n_blocking')" style="width:72px">Blocking</th>
+            <th onclick="psort('price')" style="width:80px" title="Unit sell price — click to edit in the table">Price</th>
+            <th onclick="psort('orderValue')" style="width:95px" title="Full order value: total ordered qty × price">Order Value</th>
+            <th onclick="psort('buildableValue')" style="width:100px" title="Realistic near-term revenue: qty buildable now × price">Buildable Value</th>
             <th onclick="psort('first_due')" style="width:90px">Req. Date</th>
             <th onclick="psort('firstSplitDate')" style="width:105px">First Split</th>
             <th onclick="psort('fullProdDate')" style="width:105px">Full Prod.</th>
@@ -449,6 +456,8 @@ tbody tr:first-child td{border-top:none}
         <option value="due">Sort: due date</option>
         <option value="worst">Sort: worst first</option>
         <option value="blockers">Sort: fewest blockers</option>
+        <option value="orderValue">Sort: order value ($)</option>
+        <option value="buildableValue">Sort: buildable value ($)</option>
       </select>
       <span id="cwb-count" style="font-size:.76rem;color:var(--muted)"></span>
       <button class="ml-auto" onclick="exportCSV('insights')">⬇ Export</button>
@@ -585,6 +594,7 @@ let REMOVED = new Set();  // products removed from analysis
 let SPLIT_LIMITS = {};    // comp -> max qty per product (split limit)
 let NOTES = {};           // key -> user note (prod, comp, po line, etc.)
 let E2S_SET = new Set();  // components under customer responsibility (E2S) — OK to have no PO
+let PRICE_BY_PROD = {};   // prod -> unit sell price (for revenue-based views; informational only)
 let SHARED_NOTES = {};    // comp -> note set in Shared Components tab (global per component)
 let RAW_BOM_ROWS = [];    // full BOM rows for BOM tab
 let RAW_ORDER_ROWS = [];  // full order rows for Raw Demand tab
@@ -684,6 +694,13 @@ window.addEventListener('DOMContentLoaded', async () => {
     E2S_SET = new Set(e2s);
     const cntEl = document.getElementById('e2s-count');
     if (cntEl) cntEl.textContent = `(${E2S_SET.size})`;
+  }
+  // Restore price list from cache
+  const priceMap = await loadPriceFromDB();
+  if (priceMap && Object.keys(priceMap).length) {
+    PRICE_BY_PROD = priceMap;
+    const pcntEl = document.getElementById('price-count');
+    if (pcntEl) pcntEl.textContent = `(${Object.keys(PRICE_BY_PROD).length})`;
   }
   if (cached) {
     try {
@@ -1713,6 +1730,92 @@ async function loadE2SfromDB() {
   } catch(e) { return null; }
 }
 
+// Load a price list (Product/Item + Price columns). Accepts CSV/TXT or XLSX/XLS.
+// Column detection: any header containing "item"/"product"/"part"/"sku" is the ID;
+// any header containing "price"/"cost" is the price. If no matching header is found,
+// falls back to column 0 = ID, column 1 = price (no header row assumed).
+function loadPriceList(input) {
+  if (!input.files[0]) return;
+  const file = input.files[0];
+  const isCSV = /\.(csv|txt)$/i.test(file.name);
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      let rows;
+      if (isCSV) {
+        rows = parseCSVText(e.target.result);
+      } else {
+        const wb = XLSX.read(e.target.result, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+      }
+      ingestPriceRows(rows);
+    } catch (err) {
+      toast('Price list parse error: ' + err.message);
+      console.error(err);
+    }
+  };
+  if (isCSV) reader.readAsText(file); else reader.readAsArrayBuffer(file);
+  input.value = ''; // allow re-upload of same file
+}
+
+function ingestPriceRows(rows) {
+  if (!rows || !rows.length) { toast('Price list is empty'); return; }
+  const hdr = (rows[0] || []).map(h => String(h || '').toLowerCase().trim());
+  let idCol    = hdr.findIndex(h => /item|product|part|sku/.test(h));
+  let priceCol = hdr.findIndex(h => /price|cost/.test(h));
+  let startRow = 1;
+  if (idCol < 0 || priceCol < 0) { idCol = 0; priceCol = 1; startRow = 0; } // no recognizable header
+
+  let n = 0;
+  rows.slice(startRow).forEach(r => {
+    const id = String(r[idCol] || '').trim();
+    const priceRaw = String(r[priceCol] ?? '').replace(/[^0-9.\-]/g, '');
+    const price = parseFloat(priceRaw);
+    if (id && !isNaN(price)) { PRICE_BY_PROD[id] = price; n++; }
+  });
+
+  savePriceToDB(PRICE_BY_PROD);
+  const cntEl = document.getElementById('price-count');
+  if (cntEl) cntEl.textContent = Object.keys(PRICE_BY_PROD).length ? `(${Object.keys(PRICE_BY_PROD).length})` : '';
+  if (RESULTS.length) {
+    renderPlan();
+    updateKPIs();
+    if (document.getElementById('tab-insights')?.classList.contains('active')) buildInsights();
+  }
+  toast(`Price list loaded — ${n} price${n===1?'':'s'} set ✓`);
+}
+
+// Persist prices to IndexedDB alongside the other cached lists
+async function savePriceToDB(map) {
+  try {
+    const db = await openBOMDB();
+    const tx = db.transaction(BOM_STORE, 'readwrite');
+    tx.objectStore(BOM_STORE).put(map, 'price_list');
+    await new Promise((res,rej)=>{tx.oncomplete=res;tx.onerror=rej;});
+    db.close();
+  } catch(e) { console.warn('Price save failed', e); }
+}
+async function loadPriceFromDB() {
+  try {
+    const db = await openBOMDB();
+    const tx = db.transaction(BOM_STORE, 'readonly');
+    const req = tx.objectStore(BOM_STORE).get('price_list');
+    return await new Promise(res => { req.onsuccess=()=>res(req.result||null); req.onerror=()=>res(null); });
+  } catch(e) { return null; }
+}
+
+// Inline edit of a single product's price (from the Build Plan table)
+function editPrice(prod, value) {
+  const v = parseFloat(value);
+  if (isNaN(v) || v < 0) delete PRICE_BY_PROD[prod];
+  else PRICE_BY_PROD[prod] = v;
+  savePriceToDB(PRICE_BY_PROD);
+  renderPlan();
+  updateKPIs();
+  if (document.getElementById('tab-insights')?.classList.contains('active')) buildInsights();
+}
+
 // Set a note in the Shared Components tab — stored globally per component so it
 // appears wherever that component is shown across the dashboard.
 function setSharedNote(comp, value) {
@@ -1906,6 +2009,8 @@ function buildInsights() {
     due:      (a,b) => (a.due||new Date(9e15)) - (b.due||new Date(9e15)),
     worst:    (a,b) => (a.canNow/Math.max(1,a.want)) - (b.canNow/Math.max(1,b.want)),
     blockers: (a,b) => a.blockers.length - b.blockers.length,
+    orderValue:     (a,b) => (b.want*(PRICE_BY_PROD[b.prod]||0)) - (a.want*(PRICE_BY_PROD[a.prod]||0)),
+    buildableValue: (a,b) => (b.canNow*(PRICE_BY_PROD[b.prod]||0)) - (a.canNow*(PRICE_BY_PROD[a.prod]||0)),
   };
   list = list.sort(sorters[sortBy] || sorters.rank);
 
@@ -1922,6 +2027,9 @@ function buildInsights() {
 
   el.innerHTML = list.map(a => {
     const V = VERDICT[a.verdict];
+    const price          = PRICE_BY_PROD[a.prod] || 0;
+    const orderValue     = a.want   * price;
+    const buildableValue = a.canNow * price;
 
     // ── The answer, in one sentence ──
     let answer;
@@ -2004,7 +2112,9 @@ function buildInsights() {
         <span style="font-size:1.15rem">${V.icon}</span>
         <span class="cwb-prod">${a.prod}</span>
         <span class="cwb-desc">${(a.desc||'').substring(0,48)}</span>
-        <span class="ml-auto cwb-qty">${a.canNow.toLocaleString()} / ${a.want.toLocaleString()} units</span>
+        <span class="ml-auto cwb-qty">${a.canNow.toLocaleString()} / ${a.want.toLocaleString()} units
+          ${price ? `<span style="color:var(--muted);font-weight:400;margin-left:8px">
+            · $${Math.round(buildableValue).toLocaleString()} / $${Math.round(orderValue).toLocaleString()}</span>` : ''}</span>
       </div>
       <div class="ins-headline" style="background:${V.bg};border-left-color:${V.color}">${answer}</div>
       ${dueWarn}
@@ -2033,6 +2143,7 @@ function initUI() {
   document.getElementById('main').style.display = 'block';
   document.getElementById('btn-reset').style.display = '';
   document.getElementById('btn-e2s').style.display = 'inline-block';
+  document.getElementById('btn-price').style.display = 'inline-block';
   document.getElementById('topbar-meta').textContent =
     `${RESULTS.length} products · ${new Date().toLocaleDateString('en-GB')}`;
 
@@ -2056,7 +2167,10 @@ function updateKPIs() {
   const actQty  = Math.round(RESULTS.reduce((s,r)=>s+r.active_qty,0));
   const planQty = Math.round(RESULTS.reduce((s,r)=>s+r.planned_qty,0));
   const buildNow= Math.round(RESULTS.reduce((s,r)=>s+r.buildNow,0));
-  document.getElementById('kpi-strip').innerHTML = [
+  const hasPrices = Object.keys(PRICE_BY_PROD).length > 0;
+  const orderValue     = RESULTS.reduce((s,r)=>s + r.total_qty * (PRICE_BY_PROD[r.prod]||0), 0);
+  const buildableValue = RESULTS.reduce((s,r)=>s + r.buildNow  * (PRICE_BY_PROD[r.prod]||0), 0);
+  const kpis = [
     ['Products',    RESULTS.length,  ''],
     ['Blocked',     blocked,         'var(--red)'],
     ['Partial',     partial,         'var(--orange)'],
@@ -2064,7 +2178,13 @@ function updateKPIs() {
     ['Active Qty',  actQty,          'var(--accent)'],
     ['Planned Qty', planQty,         'var(--sim)'],
     ['Build Now',   buildNow,        buildNow > 0 ? 'var(--green)' : 'var(--red)'],
-  ].map(([l,v,c]) =>
+  ];
+  if (hasPrices) {
+    kpis.push(['Order Value', '$'+Math.round(orderValue).toLocaleString(), 'var(--accent)']);
+    kpis.push(['Buildable Value', '$'+Math.round(buildableValue).toLocaleString(),
+               buildableValue >= orderValue ? 'var(--green)' : 'var(--orange)']);
+  }
+  document.getElementById('kpi-strip').innerHTML = kpis.map(([l,v,c]) =>
     `<div class="kpi"><div class="kpi-l">${l}</div><div class="kpi-v" style="color:${c||'var(--text)'}">${v}</div></div>`
   ).join('');
 }
@@ -2183,7 +2303,14 @@ function renderPlan() {
     if (ttype === 'planned' && r.planned_qty === 0) return false;
     if (srch && ![r.prod, r.desc].join(' ').toLowerCase().includes(srch)) return false;
     return true;
-  }).slice().sort((a,b) => {
+  });
+  // Attach revenue fields (recomputed every render so price edits reflect immediately)
+  rows.forEach(r => {
+    r.price          = PRICE_BY_PROD[r.prod] || 0;
+    r.orderValue     = r.total_qty * r.price;
+    r.buildableValue = r.buildNow * r.price;
+  });
+  rows = rows.slice().sort((a,b) => {
     let va = a[planSortCol], vb = b[planSortCol];
     if (planSortCol==='first_due') { va=a.first_due?.getTime()||9e15; vb=b.first_due?.getTime()||9e15; }
     if (planSortCol==='flag') {
@@ -2235,6 +2362,12 @@ function renderPlan() {
           <span style="font-size:.72rem;color:${progC(pct)};margin-left:4px">${pct}%</span>
         </td>
         <td onclick="jumpToShortage('${r.prod}')" style="text-align:right;color:${r.n_blocking>0?'var(--red)':'var(--green)'};font-weight:${r.n_blocking>0?700:400}">${r.n_blocking}</td>
+        <td onclick="event.stopPropagation()">
+          <input type="number" min="0" step="0.01" value="${r.price||''}" placeholder="—" class="split-input" style="width:64px"
+            onchange="editPrice('${r.prod}', this.value)" title="Unit sell price for ${r.prod}">
+        </td>
+        <td style="text-align:right;font-weight:700;color:${r.price?'var(--text)':'var(--muted)'}">${r.price?r.orderValue.toLocaleString(undefined,{maximumFractionDigits:0}):'—'}</td>
+        <td style="text-align:right;font-weight:700;color:${!r.price?'var(--muted)':r.buildableValue>=r.orderValue?'var(--green)':r.buildableValue>0?'var(--orange)':'var(--red)'}">${r.price?r.buildableValue.toLocaleString(undefined,{maximumFractionDigits:0}):'—'}</td>
         <td onclick="jumpToShortage('${r.prod}')" style="color:${dc};font-size:.78rem">${fd(r.first_due)}</td>
         <td onclick="jumpToShortage('${r.prod}')" style="font-size:.78rem;font-weight:600;color:${fsC}">${r.firstSplitDate?fd(r.firstSplitDate):'—'}</td>
         <td onclick="jumpToShortage('${r.prod}')" style="font-size:.78rem;font-weight:600;color:${fpC}">${r.fullProdDate?fd(r.fullProdDate):'—'}</td>
@@ -2814,12 +2947,16 @@ function exportCSV(type) {
   let csv = '';
   const date = new Date().toLocaleDateString('en-GB').replace(/\//g,'-');
   if (type==='plan') {
-    csv = ['Rank','Flag','Type','Product','Description','Active Qty','Planned Qty','Total Qty','Active Build','Plan Build','Build Now','Build+POs','% Now','Blocking','First Due','First Split Date','Full Prod Date','Status','Phantom-OK','Notes'].map(csvC).join(',') + '\r\n';
+    csv = ['Rank','Flag','Type','Product','Description','Active Qty','Planned Qty','Total Qty','Active Build','Plan Build','Build Now','Build+POs','% Now','Blocking','Price','Order Value','Buildable Value Now','First Due','First Split Date','Full Prod Date','Status','Phantom-OK','Notes'].map(csvC).join(',') + '\r\n';
     RESULTS.forEach(r => {
       const noteVal = NOTES[`plan_${r.prod}`] || '';
       const type = r.active_qty>0 && r.planned_qty>0 ? 'ACT+SIM' : r.active_qty>0 ? 'ACT' : 'SIM';
+      const price = PRICE_BY_PROD[r.prod] || '';
+      const ov = price ? Math.round(r.total_qty*price) : '';
+      const bv = price ? Math.round(r.buildNow*price) : '';
       csv += [r.rank,FLAGS[r.prod]||'normal',type,r.prod,r.desc,r.active_qty,r.planned_qty,r.total_qty,
               r.buildActiveNow,r.buildPlannedNow,r.buildNow,r.buildPoDue,r.pctNow+'%',r.n_blocking,
+              price,ov,bv,
               fd(r.first_due),r.firstSplitDate?fd(r.firstSplitDate):'',r.fullProdDate?fd(r.fullProdDate):'',
               r.status,r.phantomOnlyOverride?'YES':'',noteVal].map(csvC).join(',') + '\r\n';
     });
@@ -2880,7 +3017,8 @@ function exportCSV(type) {
 
     csv  = 'SECTION 1: WHAT CAN BE PRODUCED, WHEN, AND HOW MANY\r\n';
     csv += ['Product','Description','Verdict','Ordered Qty','Can Build Now','Can Build (all POs in)',
-            'Full Qty Ready By','Due Date','Days Late','# Blocking Components','Build Milestones']
+            'Full Qty Ready By','Due Date','Days Late','# Blocking Components','Price',
+            'Order Value','Buildable Value Now','Build Milestones']
            .map(csvC).join(',') + '\r\n';
     I.answers.forEach(a => {
       const verdict = a.verdict==='now'     ? 'Can build in full today'
@@ -2890,9 +3028,12 @@ function exportCSV(type) {
       const late = a.missDays===Infinity ? 'Never ready'
                  : (a.missDays!==null && a.missDays>0) ? a.missDays : '';
       const ms = a.steps.map(s=>`${fd(s.date)}: ${s.qty} (+${s.gained})`).join(' | ');
+      const price = PRICE_BY_PROD[a.prod] || '';
+      const ov = price ? Math.round(a.want*price) : '';
+      const bv = price ? Math.round(a.canNow*price) : '';
       csv += [a.prod, a.desc, verdict, a.want, a.canNow, a.canEver,
               a.fullDate?fd(a.fullDate):'Never', a.due?fd(a.due):'', late,
-              a.blockers.length, ms].map(csvC).join(',') + '\r\n';
+              a.blockers.length, price, ov, bv, ms].map(csvC).join(',') + '\r\n';
     });
 
     csv += '\r\nSECTION 2: WHAT IS BLOCKING EACH PRODUCT\r\n';
