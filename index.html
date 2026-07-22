@@ -1046,9 +1046,24 @@ function parseAll() {
     const O_FATHER = oC('father_item')    ?? oC('father item') ?? 11;
 
     RAW_ORDER_ROWS.slice(1).forEach(r => {
-      const otype  = String(r[O_TYPE]   || '').trim();
-      let   father = String(r[O_FATHER] || '').trim();
-      const item   = String(r[O_ITEM]   || '').trim();
+      const otype  = String(r[O_TYPE] || '').trim();
+      // Some ERP exports drop truly-blank optional fields (order_status, father_item,
+      // supp_code, supplier_name) instead of writing them as empty cells — which shifts
+      // every later column left by one slot per dropped field. A real order_status is
+      // always blank or a short text word (e.g. "Created"), never a number — so a
+      // numeric value sitting in that slot is a reliable signal this row's demand
+      // value has leaked one column early, and that father_item genuinely doesn't
+      // exist in this row at all (it's one of the dropped fields). We self-correct by
+      // reading demand/sched/planned one column earlier and treating father as blank,
+      // rather than trusting the header-implied position or misreading a stray leaked
+      // value (e.g. a planner's name, or a net_on_hand figure) as father_item.
+      const shifted = /^-?\d+(\.\d+)?$/.test(String(r[O_STATUS] ?? '').trim());
+      const O_DEMAND_R = shifted ? O_STATUS : O_DEMAND;
+      const O_SCHED_R  = shifted ? O_STATUS + 1 : O_SCHED;
+      const O_PLAN_R   = shifted ? O_STATUS + 2 : O_PLAN;
+
+      let   father = shifted ? '' : String(r[O_FATHER] ?? '').trim(); if (father === '0') father = '';
+      const item   = String(r[O_ITEM] || '').trim();
       if (!item) return;
       // Forecast rows often have a blank father_item even when they represent
       // top-level demand for the item itself — treat blank father as item==father.
@@ -1056,12 +1071,12 @@ function parseAll() {
 
       // Sub-assembly open WOs
       if (otype === 'Production Order' && item === father && !TOP_PRODUCTS.has(item)) {
-        const receipt = parseFloat(r[O_SCHED] || 0) || 0;
+        const receipt = parseFloat(r[O_SCHED_R] || 0) || 0;
         if (receipt > 0) SA_OPEN_WO[item] = (SA_OPEN_WO[item] || 0) + receipt;
       }
       // Sub-assembly existing demand
       if (otype === 'Production Order' && item !== father) {
-        const demand = parseFloat(r[O_DEMAND] || 0) || 0;
+        const demand = parseFloat(r[O_DEMAND_R] || 0) || 0;
         if (demand > 0) SA_DEMAND[item] = (SA_DEMAND[item] || 0) + demand;
       }
       // Top-product orders
@@ -1069,11 +1084,11 @@ function parseAll() {
       if (!['Production Order', 'Planned Production Order', 'Forecast'].includes(otype)) return;
       const date   = parseDate(r[O_DATE]);
       const order  = String(r[O_ORDER] || '').trim();
-      const status = String(r[O_STATUS] || '').trim();
+      const status = shifted ? '' : String(r[O_STATUS] || '').trim();
       // Forecast rows store their quantity in the 'demand' column, not Sched./Planned Supply
-      const qty    = otype === 'Production Order' ? (parseFloat(r[O_SCHED] || 0) || 0)
-                   : otype === 'Forecast'          ? (parseFloat(r[O_DEMAND] || 0) || 0)
-                   :                                  (parseFloat(r[O_PLAN]  || 0) || 0);
+      const qty    = otype === 'Production Order' ? (parseFloat(r[O_SCHED_R] || 0) || 0)
+                   : otype === 'Forecast'          ? (parseFloat(r[O_DEMAND_R] || 0) || 0)
+                   :                                  (parseFloat(r[O_PLAN_R]  || 0) || 0);
       if (qty <= 0) return;
       if (!ORDERS_BY_PROD[item]) ORDERS_BY_PROD[item] = [];
       ORDERS_BY_PROD[item].push({ date, order, qty, status,
@@ -1643,26 +1658,34 @@ function rebuildOrdersFromRaw() {
 
     RAW_ORDER_ROWS.slice(1).forEach(r => {
       const otype  = String(r[O_TYPE] || '').trim();
-      let   father = String(r[O_FATHER] || '').trim();
+      // See parseAll() FORMAT A for why this per-row shift correction is needed —
+      // some ERP exports drop blank order_status/father_item fields entirely rather
+      // than leaving them empty, shifting demand/sched/planned one column early.
+      const shifted = /^-?\d+(\.\d+)?$/.test(String(r[O_STATUS] ?? '').trim());
+      const O_DEMAND_R = shifted ? O_STATUS : O_DEMAND;
+      const O_SCHED_R  = shifted ? O_STATUS + 1 : O_SCHED;
+      const O_PLAN_R   = shifted ? O_STATUS + 2 : O_PLAN;
+
+      let   father = shifted ? '' : String(r[O_FATHER] ?? '').trim(); if (father === '0') father = '';
       const item   = String(r[O_ITEM] || '').trim();
       if (!item) return;
       if (!father && otype === 'Forecast') father = item;
       if (otype === 'Production Order' && item === father && !TOP_PRODUCTS.has(item)) {
-        const receipt = parseFloat(r[O_SCHED] || 0) || 0;
+        const receipt = parseFloat(r[O_SCHED_R] || 0) || 0;
         if (receipt > 0) SA_OPEN_WO[item] = (SA_OPEN_WO[item] || 0) + receipt;
       }
       if (otype === 'Production Order' && item !== father) {
-        const demand = parseFloat(r[O_DEMAND] || 0) || 0;
+        const demand = parseFloat(r[O_DEMAND_R] || 0) || 0;
         if (demand > 0) SA_DEMAND[item] = (SA_DEMAND[item] || 0) + demand;
       }
       if (father !== item) return;
       if (!['Production Order', 'Planned Production Order', 'Forecast'].includes(otype)) return;
       const date   = parseDate(r[O_DATE]);
       const order  = String(r[O_ORDER] || '').trim();
-      const status = String(r[O_STATUS] || '').trim();
-      const qty    = otype === 'Production Order' ? (parseFloat(r[O_SCHED] || 0) || 0)
-                   : otype === 'Forecast'          ? (parseFloat(r[O_DEMAND] || 0) || 0)
-                   :                                  (parseFloat(r[O_PLAN]  || 0) || 0);
+      const status = shifted ? '' : String(r[O_STATUS] || '').trim();
+      const qty    = otype === 'Production Order' ? (parseFloat(r[O_SCHED_R] || 0) || 0)
+                   : otype === 'Forecast'          ? (parseFloat(r[O_DEMAND_R] || 0) || 0)
+                   :                                  (parseFloat(r[O_PLAN_R]  || 0) || 0);
       if (qty <= 0) return;
       if (!ORDERS_BY_PROD[item]) ORDERS_BY_PROD[item] = [];
       ORDERS_BY_PROD[item].push({ date, order, qty, status,
