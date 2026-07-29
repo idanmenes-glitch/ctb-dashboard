@@ -992,6 +992,17 @@ function parseAll() {
   ORDERS_BY_PROD = {};
   SA_OPEN_WO = {};
   SA_DEMAND  = {};
+  // An item can be BOTH a genuine top-level product (its own BOM entry) AND a
+  // sub-assembly consumed inside some OTHER product's BOM (e.g. X17470 is built
+  // and sold on its own, but X17326 also uses it as a component). Its own open
+  // Production Order should still count as available supply toward whoever else
+  // needs it as a component — so "is it a TOP_PRODUCT" is the wrong test for
+  // whether to credit its WO as sub-assembly supply. The right test is simply
+  // "does it appear as a component in some other product's BOM at all".
+  const SUBASSEMBLY_ITEMS = new Set();
+  Object.entries(BOM_BY_PROD).forEach(([prod, comps]) => {
+    comps.forEach(c => { if (c.comp !== prod) SUBASSEMBLY_ITEMS.add(c.comp); });
+  });
   const ordSheetName = FILES.order.SheetNames.find(n => n.toLowerCase() === 'data')
                     || FILES.order.SheetNames.find(n => n === 'Sheet1')
                     || FILES.order.SheetNames.find(n => n === 'Sheet2')
@@ -1070,7 +1081,7 @@ function parseAll() {
       if (!father && otype === 'Forecast') father = item;
 
       // Sub-assembly open WOs
-      if (otype === 'Production Order' && item === father && !TOP_PRODUCTS.has(item)) {
+      if (otype === 'Production Order' && item === father && SUBASSEMBLY_ITEMS.has(item)) {
         const receipt = parseFloat(r[O_SCHED_R] || 0) || 0;
         if (receipt > 0) SA_OPEN_WO[item] = (SA_OPEN_WO[item] || 0) + receipt;
       }
@@ -1140,10 +1151,17 @@ function runAllocation() {
 
   // ── PASS 1: Allocate to ACTIVE WOs only ──
   const poolAfterActive = { ...INVENTORY };
-  // Add free sub-assembly WO supply to pool
+  // Add sub-assembly WO supply to the pool. NOTE: we add the FULL open-WO quantity,
+  // not "open WO minus SA_DEMAND" — SA_DEMAND mostly represents consumption by
+  // products that are THEMSELVES walked through this same Pass 1/Pass 2 loop below
+  // (which will correctly deduct their own active_qty*qpa need from this same pool).
+  // Pre-subtracting SA_DEMAND here AND letting each product independently deduct its
+  // own need from the pool double-charges that product's own demand against the WO.
+  // Letting the normal priority-ordered pool consumption below handle all of it
+  // (just like ordinary inventory) is both correct and matches the intent: the open
+  // WO's output should go first to whichever product actually needs it.
   Object.entries(SA_OPEN_WO).forEach(([item, qty]) => {
-    const free = Math.max(0, qty - (SA_DEMAND[item] || 0));
-    if (free > 0) poolAfterActive[item] = (poolAfterActive[item] || 0) + free;
+    if (qty > 0) poolAfterActive[item] = (poolAfterActive[item] || 0) + qty;
   });
 
   // Per-product pool snapshot: what each product sees when it's their turn
@@ -1207,9 +1225,16 @@ function runAllocation() {
 
       // Sub-assembly unallocated supply:
       // Open WOs for this component (already in production)
-      // minus existing demand already allocated to other products' active WOs
+      // minus existing demand already allocated to OTHER products' active WOs.
+      // IMPORTANT: SA_DEMAND[c.comp] often includes THIS SAME product's own
+      // active-linked consumption of this component (that's exactly how it got
+      // recorded — a Production Order row with item=comp, father=this product).
+      // needActive below already represents that same demand via our own BOM
+      // explosion, so we must exclude it here or we'd subtract it twice: once by
+      // shrinking the "free" WO supply, and again by comparing needActive against
+      // that already-shrunk supply.
       const saOpenWO    = SA_OPEN_WO[c.comp]  || 0;
-      const saExisting  = SA_DEMAND[c.comp]   || 0;
+      const saExisting  = Math.max(0, (SA_DEMAND[c.comp] || 0) - needActive);
       const saFree      = Math.max(0, saOpenWO - saExisting); // unallocated WO supply
       // Note: saFree is sub-assembly supply already in production that isn't spoken for
 
@@ -1312,10 +1337,13 @@ function runAllocation() {
       let maxA=Infinity, maxP=Infinity;
       for (const c of bom) {
         const stock    = INVENTORY[c.comp]||0;
-        const saFree   = Math.max(0, (SA_OPEN_WO[c.comp]||0) - (SA_DEMAND[c.comp]||0));
+        const needA    = active_qty * c.qpa;
+        // Exclude this product's own active-linked SA_DEMAND contribution — see the
+        // matching note in compAnalysis above for why (avoids double-counting).
+        const saExisting = Math.max(0, (SA_DEMAND[c.comp]||0) - needA);
+        const saFree   = Math.max(0, (SA_OPEN_WO[c.comp]||0) - saExisting);
         const poAvail  = (PO_BY_ITEM[c.comp]||[]).filter(p=>p.eta<=checkDate).reduce((s,p)=>s+p.qty,0);
         const avail    = stock + saFree + poAvail;
-        const needA    = active_qty * c.qpa;
         const leftForPlan = Math.max(0, avail - needA);
         maxA = Math.min(maxA, c.qpa>0 ? Math.floor(avail/c.qpa) : 0);
         maxP = Math.min(maxP, c.qpa>0 ? Math.floor(leftForPlan/c.qpa) : 0);
@@ -1617,6 +1645,12 @@ function rebuildOrdersFromRaw() {
   ORDERS_BY_PROD = {};
   SA_OPEN_WO = {};
   SA_DEMAND  = {};
+  // See parseAll() for why this is the correct test (an item can be both a
+  // top-level product AND a sub-assembly consumed elsewhere).
+  const SUBASSEMBLY_ITEMS = new Set();
+  Object.entries(BOM_BY_PROD).forEach(([prod, comps]) => {
+    comps.forEach(c => { if (c.comp !== prod) SUBASSEMBLY_ITEMS.add(c.comp); });
+  });
   const ordHdr = (RAW_ORDER_ROWS[0]||[]).map(h => String(h||'').toLowerCase().trim());
   const oC = name => { const i = ordHdr.indexOf(name); return i>=0 ? i : null; };
   const isPegging = ordHdr.some(h => h.includes('plan item'));
@@ -1670,7 +1704,7 @@ function rebuildOrdersFromRaw() {
       const item   = String(r[O_ITEM] || '').trim();
       if (!item) return;
       if (!father && otype === 'Forecast') father = item;
-      if (otype === 'Production Order' && item === father && !TOP_PRODUCTS.has(item)) {
+      if (otype === 'Production Order' && item === father && SUBASSEMBLY_ITEMS.has(item)) {
         const receipt = parseFloat(r[O_SCHED_R] || 0) || 0;
         if (receipt > 0) SA_OPEN_WO[item] = (SA_OPEN_WO[item] || 0) + receipt;
       }
