@@ -2652,7 +2652,9 @@ function renderShortage() {
       <td style="text-align:right;font-weight:700;color:${s.netWithPO>0?'var(--red)':'var(--green)'}">${s.netWithPO>0?s.netWithPO:'✓'}</td>
       <td style="font-weight:700;color:${resFg};font-size:.78rem">${s.resDate?(s.resDateEstimated?`(${fd(s.resDate)})<span style="font-size:.6rem;color:var(--muted);margin-left:2px" title="Resolving PO ETA is estimated (ETD + 2 weeks)">est</span>`:fd(s.resDate)):'—'}</td>
       <td style="font-size:.75rem"><span class="trunc" title="${supp}">${supp}</span></td>
-      <td style="font-size:.7rem;color:var(--muted)">${poLines||'<span style="color:var(--red)">No POs</span>'}</td>
+      <td style="font-size:.7rem;color:var(--muted)">${poLines || (s.isMake
+        ? '<span style="color:var(--red)" title="In-house manufactured item — no Work Order raised yet">No Job</span>'
+        : '<span style="color:var(--red)">No POs</span>')}</td>
       <td onclick="event.stopPropagation()">
         <input class="notes-input" type="text" value="${noteVal}" placeholder="Add note…"
           data-key="${noteKey}" onchange="NOTES[this.dataset.key]=this.value"
@@ -2664,6 +2666,7 @@ function renderShortage() {
     </tr>`;
   }).join('');
   addColFilters('tbl-shortage');
+  applyColFilters('tbl-shortage');
 }
 
 function toggleSARow(baseId) {
@@ -3244,7 +3247,13 @@ function exportCSV(type) {
 // Supports: contains, equals, starts with, ends with,
 //           >, >=, <, <=, between (number/date), blank/non-blank
 // ══════════════════════════════════════
-const COL_FILTERS = {};
+const COL_FILTERS = {
+  // Default the Shortages tab to only show real buildable-assembly lines
+  // (PBOM / L1 PBOM) — hides Phantom, SA-pass-through, and BUY rows by default.
+  // "PBOM" as a Contains filter matches both "PBOM" and "L1 PBOM" since the
+  // latter contains the former as a substring, while excluding Phantom/BUY/SA.
+  'tbl-shortage': { 2: { op: 'contains', val: 'PBOM' } },
+};
 
 // Filter operators
 const FILTER_OPS = [
