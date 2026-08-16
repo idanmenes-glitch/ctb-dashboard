@@ -286,12 +286,14 @@ tbody tr:first-child td{border-top:none}
   <div id="nav">
     <button class="tab-btn active" onclick="showTab('plan',this)">📋 Build Plan</button>
     <button class="tab-btn" onclick="showTab('insights',this)">✅ Can We Build?</button>
+    <button class="tab-btn" onclick="showTab('actions',this)">🎯 Action List</button>
     <button class="tab-btn" onclick="showTab('shortage',this)">📉 Shortages</button>
     <button class="tab-btn" onclick="showTab('shared',this)">🔀 Shared Components</button>
     <button class="tab-btn" onclick="showTab('po',this)">🚚 Open POs</button>
     <button class="tab-btn" onclick="showTab('summary',this)">📄 Summary</button>
     <button class="tab-btn" onclick="showTab('bom',this)">🔩 BOM</button>
     <button class="tab-btn" onclick="showTab('rawdemand',this)">📋 Raw Demand</button>
+    <button class="tab-btn" onclick="showTab('tests',this)">🧪 Tests</button>
   </div>
 
   <!-- BUILD PLAN -->
@@ -469,6 +471,31 @@ tbody tr:first-child td{border-top:none}
     <div id="insights-body" style="padding:4px 0"></div>
   </div>
 
+  <!-- ACTION LIST -->
+  <div id="tab-actions" class="tab-panel">
+    <div class="toolbar">
+      <select id="act-filter" onchange="buildActionList()" style="width:190px">
+        <option value="all">All actions</option>
+        <option value="po">🛒 Raise PO</option>
+        <option value="job">🏭 Raise Work Order</option>
+        <option value="more">➕ PO insufficient</option>
+        <option value="expedite">⏩ Expedite existing PO</option>
+        <option value="customer">👤 Customer-owned (E2S)</option>
+      </select>
+      <input type="text" id="act-search" placeholder="Search component…" oninput="buildActionList()" style="width:170px">
+      <select id="act-sort" onchange="buildActionList()" style="width:180px">
+        <option value="impact">Sort: products blocked</option>
+        <option value="value">Sort: $ impact</option>
+        <option value="qty">Sort: qty short</option>
+        <option value="urgency">Sort: most urgent</option>
+      </select>
+      <span id="act-count" style="font-size:.76rem;color:var(--muted)"></span>
+      <button class="ml-auto" onclick="exportCSV('actions')">⬇ Export</button>
+    </div>
+    <div id="act-summary"></div>
+    <div id="actions-body" style="padding:4px 0"></div>
+  </div>
+
   <!-- SUMMARY -->
   <div id="tab-summary" class="tab-panel">
     <div class="toolbar">
@@ -542,6 +569,15 @@ tbody tr:first-child td{border-top:none}
         <th style="width:160px">Notes</th>
       </tr></thead><tbody id="rd-body"></tbody></table>
     </div>
+  </div>
+
+  <!-- TESTS -->
+  <div id="tab-tests" class="tab-panel">
+    <div class="toolbar">
+      <button onclick="runAllTests()">▶ Run All Tests</button>
+      <span id="test-status" style="font-size:.8rem;color:var(--muted)"></span>
+    </div>
+    <div id="tests-body" style="padding:4px 0"></div>
   </div>
 
 </div>
@@ -2248,6 +2284,451 @@ function jumpToComponent(comp) {
   if (s) { s.value = comp; renderShared(); }
 }
 
+// ══════════════════════════════════════
+// ACTION LIST — focused actions on short items to resolve production
+// ══════════════════════════════════════
+
+// For every real component shortage across all products, work out ONE specific
+// action: raise a PO, raise a Work Order, raise an additional PO (existing one is
+// too small), expedite an existing PO that arrives too late, or flag to the
+// customer (E2S). Aggregated across products so the same component blocking many
+// products appears once, ranked by how much it's blocking.
+function computeActionList() {
+  const compMap = {};
+
+  RESULTS.forEach(r => {
+    if (!r.compAnalysis) return;
+    const due = r.first_active_due || r.first_due || null;
+    const price = PRICE_BY_PROD[r.prod] || 0;
+
+    r.compAnalysis.forEach(c => {
+      if (/phantom/i.test(c.stype || '')) return;   // no real stocking point
+      const short = c.shortNow || 0;
+      if (short <= 0) return;                        // fully covered — nothing to do
+
+      if (!compMap[c.comp]) {
+        const pos = (PO_BY_ITEM[c.comp] || []).slice().sort((a,b)=>(a.eta||new Date(9e15))-(b.eta||new Date(9e15)));
+        compMap[c.comp] = {
+          comp: c.comp, desc: c.desc || COMP_DESC[c.comp] || '',
+          supplier: c.supplier || pos[0]?.supplier || COMP_SUPPLIER[c.comp] || '',
+          isMake: c.makeBuy ? /^make$/i.test(c.makeBuy) : /pbom/i.test(c.stype||''),
+          isE2S: E2S_SET.has(c.comp),
+          poQty: pos.reduce((s,p)=>s+p.qty,0),
+          pos,
+          products: new Set(), shortQty: 0, blockedUnits: 0, blockedValue: 0,
+          earliestDue: null,
+        };
+      }
+      const e = compMap[c.comp];
+      e.products.add(r.prod);
+      e.shortQty += short;
+      const cannotBuild = Math.max(0, (r.total_qty||0) - (c.buildNow||0));
+      e.blockedUnits += cannotBuild;
+      e.blockedValue += cannotBuild * price;
+      if (due && (!e.earliestDue || due < e.earliestDue)) e.earliestDue = due;
+
+      // Track the tightest (soonest) need this component must satisfy, so the
+      // resolution check below is anchored to whichever product needs it first.
+      const need = (c.need_active||0) + (c.need_planned||0);
+      if (!e.maxNeed || need > e.maxNeed) e.maxNeed = need;
+      e.onHand = c.effectiveOnHand || 0; // same for this comp regardless of product
+    });
+  });
+
+  // Resolve action + resolution date per component
+  const items = Object.values(compMap).map(e => {
+    let cumul = e.onHand || 0, resDate = null, resDateEstimated = false;
+    for (const p of e.pos) {
+      if (!p.eta) continue;
+      cumul += p.qty;
+      if (cumul >= (e.maxNeed||0)) { resDate = p.eta; resDateEstimated = !!p.etaEstimated; break; }
+    }
+    const late = resDate && e.earliestDue && resDate > e.earliestDue;
+    const lateDays = late ? Math.ceil((resDate - e.earliestDue) / 86400000) : null;
+
+    let action;
+    if (e.isE2S)                                    action = 'customer';
+    else if (resDate && !late)                       action = null;      // resolves in time — no action needed
+    else if (resDate && late)                        action = 'expedite';
+    else if (e.poQty > 0)                            action = 'more';    // PO(s) exist but never cover the need
+    else if (e.isMake)                               action = 'job';
+    else                                              action = 'po';
+
+    return { ...e, products: [...e.products], nProducts: e.products.size,
+              resDate, resDateEstimated, late, lateDays, action };
+  }).filter(e => e.action);   // drop anything that resolves fine on its own
+
+  return items;
+}
+
+function buildActionList() {
+  const el = document.getElementById('actions-body');
+  if (!RESULTS.length) { el.innerHTML = `<div class="ins-none">Run the analysis first.</div>`; return; }
+
+  const items  = computeActionList();
+  const filter = document.getElementById('act-filter')?.value || 'all';
+  const srch   = (document.getElementById('act-search')?.value || '').toLowerCase();
+  const sortBy = document.getElementById('act-sort')?.value || 'impact';
+
+  const ACTION = {
+    po:       { icon:'🛒', label:'Raise PO',              color:'var(--red)',    bg:'var(--red-bg)' },
+    job:      { icon:'🏭', label:'Raise Work Order',      color:'var(--red)',    bg:'var(--red-bg)' },
+    more:     { icon:'➕', label:'PO insufficient',       color:'var(--orange)', bg:'var(--ora-bg)' },
+    expedite: { icon:'⏩', label:'Expedite existing PO',  color:'var(--orange)', bg:'var(--ora-bg)' },
+    customer: { icon:'👤', label:'Customer-owned (E2S)',  color:'var(--accent)', bg:'rgba(2,132,199,.08)' },
+  };
+
+  const counts = { po:0, job:0, more:0, expedite:0, customer:0 };
+  items.forEach(i => counts[i.action]++);
+
+  document.getElementById('act-summary').innerHTML = `
+    <div class="cwb-strip" style="grid-template-columns:repeat(5,1fr)">
+      ${Object.entries(ACTION).map(([k,v]) => `
+        <div class="cwb-stat" onclick="actSet('${k}')">
+          <div class="cwb-n" style="color:${v.color}">${counts[k]}</div>
+          <div class="cwb-l">${v.icon} ${v.label}</div></div>`).join('')}
+    </div>`;
+
+  let list = items.filter(i => {
+    if (srch && !(`${i.comp} ${i.desc}`.toLowerCase().includes(srch))) return false;
+    if (filter !== 'all' && i.action !== filter) return false;
+    return true;
+  });
+
+  const sorters = {
+    impact:  (a,b) => b.nProducts - a.nProducts || b.blockedUnits - a.blockedUnits,
+    value:   (a,b) => b.blockedValue - a.blockedValue,
+    qty:     (a,b) => b.shortQty - a.shortQty,
+    urgency: (a,b) => {
+      const da = a.late ? -a.lateDays : (a.earliestDue ? daysDiff(a.earliestDue) : 9999);
+      const db = b.late ? -b.lateDays : (b.earliestDue ? daysDiff(b.earliestDue) : 9999);
+      return da - db;
+    },
+  };
+  list = list.sort(sorters[sortBy] || sorters.impact);
+
+  document.getElementById('act-count').textContent = `${list.length} action${list.length===1?'':'s'}`;
+
+  if (!list.length) { el.innerHTML = `<div class="ins-none">Nothing needs action — every shortage either resolves in time or has no real blocker.</div>`; return; }
+
+  el.innerHTML = `<div class="ins-grid">` + list.map(i => {
+    const A = ACTION[i.action];
+    const hasPrice = i.blockedValue > 0;
+
+    let instruction;
+    if (i.action === 'po') {
+      instruction = `Raise a PO for <b>${Math.round(i.shortQty).toLocaleString()}</b> units`
+                  + (i.earliestDue ? ` — needed by <b>${fd(i.earliestDue)}</b>` : '') + `.`;
+    } else if (i.action === 'job') {
+      instruction = `Raise a Work Order for <b>${Math.round(i.shortQty).toLocaleString()}</b> units`
+                  + (i.earliestDue ? ` — needed by <b>${fd(i.earliestDue)}</b>` : '') + `.`;
+    } else if (i.action === 'more') {
+      instruction = `Existing PO${i.pos.length>1?'s':''} (<b>${Math.round(i.poQty).toLocaleString()}</b> units) won't cover the need —
+                     raise an additional PO for at least <b>${Math.round(i.shortQty).toLocaleString()}</b> more units.`;
+    } else if (i.action === 'expedite') {
+      instruction = `PO covers the qty but arrives <b>${fd(i.resDate)}</b>${i.resDateEstimated?' (est.)':''} —
+                     <b>${i.lateDays} day${i.lateDays===1?'':'s'} after</b> it's needed (<b>${fd(i.earliestDue)}</b>).
+                     Ask the supplier to expedite.`;
+    } else {
+      instruction = `Customer-supplied (E2S) — <b>${Math.round(i.shortQty).toLocaleString()}</b> units short.
+                     Flag to the customer; not actionable on our side.`;
+    }
+
+    return `
+    <div class="ins-card" style="border-left:4px solid ${A.color}">
+      <div class="cwb-head">
+        <span style="font-size:1.15rem">${A.icon}</span>
+        <span class="cwb-prod">${i.comp}</span>
+        <span class="cwb-desc">${(i.desc||'').substring(0,42)}</span>
+        <span class="ml-auto" style="font-size:.72rem;font-weight:700;color:${A.color}">${A.label}</span>
+      </div>
+      <div class="ins-headline" style="background:${A.bg};border-left-color:${A.color}">${instruction}</div>
+      <table class="ins-tbl"><tbody>
+        <tr>
+          <td style="color:var(--muted);width:120px">Blocks</td>
+          <td><b>${i.nProducts}</b> product${i.nProducts===1?'':'s'} · <b>${Math.round(i.blockedUnits).toLocaleString()}</b> units
+              ${hasPrice?` · <b>$${Math.round(i.blockedValue).toLocaleString()}</b>`:''}</td>
+        </tr>
+        <tr>
+          <td style="color:var(--muted)">Supplier</td>
+          <td><span class="trunc" title="${i.supplier}">${i.supplier||'—'}</span></td>
+        </tr>
+        <tr>
+          <td style="color:var(--muted)">Products</td>
+          <td style="font-family:monospace;font-size:.74rem">${i.products.slice(0,6).map(p=>
+            `<span class="ins-comp" onclick="jumpToShortage('${p}')">${p}</span>`).join(', ')}${i.products.length>6?` +${i.products.length-6} more`:''}</td>
+        </tr>
+      </tbody></table>
+    </div>`;
+  }).join('') + `</div>`;
+}
+
+function actSet(v) {
+  const s = document.getElementById('act-filter');
+  if (s) { s.value = v; buildActionList(); }
+}
+
+// ══════════════════════════════════════
+// TESTS — automated correctness checks
+// ══════════════════════════════════════
+
+// Reconstruct the exact priority order runAllocation() uses (critical flag first,
+// then normal, then low, and within a flag group, PRIORITY list order).
+function getSortedPriority() {
+  const flagOrder = { critical: 0, normal: 1, low: 2 };
+  return [...PRIORITY].filter(p => !REMOVED.has(p)).sort((a, b) => {
+    const fa = flagOrder[FLAGS[a] || 'normal'];
+    const fb = flagOrder[FLAGS[b] || 'normal'];
+    if (fa !== fb) return fa - fb;
+    return PRIORITY.indexOf(a) - PRIORITY.indexOf(b);
+  });
+}
+
+// ── TEST 1: sub-assembly active-WO output is prioritized for demanding assemblies ──
+function runTest1() {
+  const checks = [];
+  const sorted = getSortedPriority();
+
+  // 1A — independent re-derivation: does raw order-plan data show an active WO for
+  // an item that's also used as a component elsewhere, and if so, did SA_OPEN_WO
+  // actually pick it up? This directly guards against the exact regression class
+  // found earlier (an item being excluded just because it's also a top-level product).
+  const ordHdr = (RAW_ORDER_ROWS[0] || []).map(h => String(h || '').toLowerCase().trim());
+  const isPeggingFmt = ordHdr.some(h => h.includes('plan item'));
+  if (isPeggingFmt) {
+    checks.push({ label: '1A. Raw-data WO detection', pass: null,
+      detail: 'N/A — order plan is in PEGGING format, which doesn\'t carry father_item/order_type columns the same way. This check only applies to Item Order Plan format files.' });
+  } else {
+    const oC = name => { const i = ordHdr.indexOf(name); return i >= 0 ? i : -1; };
+    const O_ITEM   = oC('item')        >= 0 ? oC('item')        : 3;
+    const O_TYPE   = oC('order_type')  >= 0 ? oC('order_type')  : 4;
+    const O_STATUS = oC('order_status')>= 0 ? oC('order_status'): 6;
+    const O_FATHER = oC('father_item') >= 0 ? oC('father_item') : 12;
+    const O_SCHED  = oC('sched. receipt') >= 0 ? oC('sched. receipt') : 8;
+
+    const rawWoItems = new Set();
+    RAW_ORDER_ROWS.slice(1).forEach(r => {
+      const otype = String(r[O_TYPE] || '').trim();
+      if (otype !== 'Production Order') return;
+      const shifted = /^-?\d+(\.\d+)?$/.test(String(r[O_STATUS] ?? '').trim());
+      const item = String(r[O_ITEM] || '').trim();
+      const father = shifted ? item : String(r[O_FATHER] ?? '').trim();
+      const schedIdx = shifted ? O_STATUS + 1 : O_SCHED;
+      const receipt = parseFloat(r[schedIdx] || 0) || 0;
+      if (item && item === father && receipt > 0) rawWoItems.add(item);
+    });
+
+    const SUBASSEMBLY_ITEMS_CHECK = new Set();
+    Object.entries(BOM_BY_PROD).forEach(([prod, comps]) => comps.forEach(c => { if (c.comp !== prod) SUBASSEMBLY_ITEMS_CHECK.add(c.comp); }));
+    const dualRoleWithWO = [...rawWoItems].filter(it => SUBASSEMBLY_ITEMS_CHECK.has(it));
+
+    let failed = dualRoleWithWO.filter(it => !(SA_OPEN_WO[it] > 0));
+    checks.push({ label: `1A. Raw-data WO detection (${dualRoleWithWO.length} dual-role item${dualRoleWithWO.length===1?'':'s'} checked)`,
+      pass: failed.length === 0,
+      detail: failed.length === 0
+        ? `Every item with a raw active-WO row AND used as a component elsewhere has SA_OPEN_WO populated.`
+        : `${failed.length} item(s) have an active WO in the raw data but SA_OPEN_WO is missing/zero: ${failed.slice(0,8).join(', ')}${failed.length>8?'…':''}` });
+  }
+
+  // 1B / 1C — for every sub-assembly with an open WO, simulate the expected priority
+  // waterfall (stock+WO consumed by demanding products strictly in priority order)
+  // and compare against the actual effectiveStockSnapshot each product saw.
+  let waterfallChecked = 0, waterfallFailed = 0;
+  const waterfallDetails = [];
+  let conservationFailed = 0;
+
+  Object.entries(SA_OPEN_WO).forEach(([saItem, openWO]) => {
+    if (!(openWO > 0)) return;
+    const totalSupply = (INVENTORY[saItem] || 0) + openWO;
+
+    const demanders = [];
+    sorted.forEach(prod => {
+      const bom = BOM_BY_PROD[prod] || [];
+      const comp = bom.find(c => c.comp === saItem);
+      if (!comp) return;
+      const r = RESULTS.find(x => x.prod === prod);
+      if (!r) return;
+      const needActive = (r.active_qty || 0) * comp.qpa;
+      if (needActive > 0) demanders.push({ prod, needActive, r });
+    });
+    if (demanders.length < 1) return;
+
+    let remaining = totalSupply;
+    for (const d of demanders) {
+      waterfallChecked++;
+      const expectedBefore = remaining;
+      const actual = d.r.effectiveStockSnapshot ? d.r.effectiveStockSnapshot[saItem] : undefined;
+      const ok = actual !== undefined && Math.abs(actual - expectedBefore) < 0.5;
+      if (!ok) {
+        waterfallFailed++;
+        if (waterfallDetails.length < 10) waterfallDetails.push(
+          `${saItem} → ${d.prod}: expected ${expectedBefore.toFixed(1)}, got ${actual===undefined?'undefined':actual.toFixed(1)}`);
+      }
+      remaining -= Math.min(remaining, d.needActive);
+    }
+    if (remaining < -0.5) conservationFailed++;
+  });
+
+  checks.push({ label: `1B. Priority waterfall correctness (${waterfallChecked} product×component pairs checked across ${Object.keys(SA_OPEN_WO).length} sub-assemblies with open WOs)`,
+    pass: waterfallFailed === 0,
+    detail: waterfallFailed === 0
+      ? `Every demanding product's available supply exactly matches stock+WO consumed strictly in priority order.`
+      : `${waterfallFailed} mismatch(es) found:\n` + waterfallDetails.join('\n') });
+
+  checks.push({ label: '1C. Conservation (no over-allocation)', pass: conservationFailed === 0,
+    detail: conservationFailed === 0 ? 'No sub-assembly pool went negative.' : `${conservationFailed} sub-assembly pool(s) were over-allocated.` });
+
+  return { name: 'Test 1 — Sub-assembly active-WO priority', checks };
+}
+
+// ── TEST 2: changing production priority changes raw-material allocation ──
+function runTest2() {
+  const checks = [];
+  const sorted = getSortedPriority();
+
+  // Find the most scarce, most-shared RAW/purchased component to test with: the one
+  // demanded (actively) by the most products where at least one is currently short.
+  const compDemand = {}; // comp -> [{prod, needActive}]
+  sorted.forEach(prod => {
+    const r = RESULTS.find(x => x.prod === prod);
+    if (!r) return;
+    (BOM_BY_PROD[prod] || []).forEach(c => {
+      if (/phantom/i.test(c.stype || '')) return;
+      const needActive = (r.active_qty || 0) * c.qpa;
+      if (needActive <= 0) return;
+      (compDemand[c.comp] = compDemand[c.comp] || []).push({ prod, needActive });
+    });
+  });
+
+  let candidate = null;
+  Object.entries(compDemand).forEach(([comp, list]) => {
+    if (list.length < 2) return;
+    const stock = INVENTORY[comp] || 0;
+    const totalNeed = list.reduce((s, d) => s + d.needActive, 0);
+    if (totalNeed <= stock) return; // not scarce — reordering wouldn't change anything
+    // Prefer the most contested (biggest gap between demand and supply, most products)
+    const score = (totalNeed - stock) * list.length;
+    if (!candidate || score > candidate.score) candidate = { comp, list, stock, totalNeed, score };
+  });
+
+  if (!candidate) {
+    checks.push({ label: '2. Priority-change propagation', pass: null,
+      detail: 'SKIPPED — no scarce shared component found in the current data (nothing for priority order to actually contend over). This is not a failure; it just means this dataset has no test case for it right now.' });
+    return { name: 'Test 2 — Priority change propagates to allocation', checks };
+  }
+
+  // Pick the exact SCARCITY BOUNDARY: the first demander (in priority order) that
+  // does NOT get its full need met, and the demander immediately before it (who
+  // does). Swapping just this adjacent pair changes nobody else's relative order
+  // for this component, which is what makes the conservation check below valid —
+  // whatever supply the swap frees up from one side lands entirely on the other.
+  const list = candidate.list; // in priority order (built by walking `sorted`)
+  let boundary = list.findIndex(d => {
+    const r = RESULTS.find(x => x.prod === d.prod);
+    const snap = r?.effectiveStockSnapshot?.[candidate.comp] ?? 0;
+    return snap < d.needActive - 0.5; // this one doesn't get fully satisfied
+  });
+  if (boundary <= 0) boundary = 1; // fallback: no senior/satisfied neighbor — use the first pair anyway
+  const demote  = list[boundary - 1].prod; // currently senior, currently satisfied (or first)
+  const promote = list[boundary].prod;     // currently junior, currently short
+  const comp = candidate.comp;
+
+  const before = {
+    promote: RESULTS.find(x => x.prod === promote)?.effectiveStockSnapshot?.[comp],
+    demote:  RESULTS.find(x => x.prod === demote)?.effectiveStockSnapshot?.[comp],
+  };
+  const needPromote = list.find(d => d.prod === promote).needActive;
+  const needDemote  = list.find(d => d.prod === demote).needActive;
+  const allocBefore = {
+    promote: Math.min(needPromote, before.promote ?? 0),
+    demote:  Math.min(needDemote,  before.demote  ?? 0),
+  };
+
+  // Perform the swap on a COPY, re-run the real allocation engine, capture results,
+  // then restore original priority and re-run again so nothing is left changed.
+  const originalPriority = [...PRIORITY];
+  let after = {};
+  try {
+    const swapped = [...PRIORITY];
+    const ia = swapped.indexOf(promote), ib = swapped.indexOf(demote);
+    if (ia === -1 || ib === -1) throw new Error('product missing from PRIORITY list');
+    [swapped[ia], swapped[ib]] = [swapped[ib], swapped[ia]];
+    PRIORITY = swapped;
+    runAllocation();
+    after.promote = RESULTS.find(x => x.prod === promote)?.effectiveStockSnapshot?.[comp];
+    after.demote  = RESULTS.find(x => x.prod === demote)?.effectiveStockSnapshot?.[comp];
+  } finally {
+    PRIORITY = originalPriority;
+    runAllocation();
+    renderPlan(); renderShortage(); renderShared(); buildSummary(); updateKPIs();
+  }
+
+  const allocAfter = {
+    promote: Math.min(needPromote, after.promote ?? 0),
+    demote:  Math.min(needDemote,  after.demote  ?? 0),
+  };
+
+  const changed = Math.abs(allocAfter.promote - allocBefore.promote) > 0.5
+                || Math.abs(allocAfter.demote  - allocBefore.demote)  > 0.5;
+  const promoteGotMoreOrSame = allocAfter.promote >= allocBefore.promote - 0.5;
+  const demoteGotLessOrSame  = allocAfter.demote  <= allocBefore.demote  + 0.5;
+  const conserved = Math.abs((allocBefore.promote + allocBefore.demote) - (allocAfter.promote + allocAfter.demote)) < 0.5;
+
+  checks.push({ label: `2a. Reordering actually changes allocation (test: ${comp}, adjacent swap ${promote} ↔ ${demote})`,
+    pass: changed,
+    detail: changed
+      ? `${promote} allocation: ${allocBefore.promote.toFixed(1)} → ${allocAfter.promote.toFixed(1)}. ${demote} allocation: ${allocBefore.demote.toFixed(1)} → ${allocAfter.demote.toFixed(1)}.`
+      : `No change detected after swapping priority — the engine may not be responding to priority order for this component.` });
+
+  checks.push({ label: '2b. Promoted product never ends up worse off', pass: promoteGotMoreOrSame,
+    detail: `${promote}: ${allocBefore.promote.toFixed(1)} → ${allocAfter.promote.toFixed(1)} units of ${comp}.` });
+
+  checks.push({ label: '2c. Demoted product never ends up better off', pass: demoteGotLessOrSame,
+    detail: `${demote}: ${allocBefore.demote.toFixed(1)} → ${allocAfter.demote.toFixed(1)} units of ${comp}.` });
+
+  checks.push({ label: '2d. Conservation (adjacent swap — combined allocation across just this pair is unchanged, since no other product\'s relative order changed)',
+    pass: conserved,
+    detail: `Combined before: ${(allocBefore.promote+allocBefore.demote).toFixed(1)}, after: ${(allocAfter.promote+allocAfter.demote).toFixed(1)}.` });
+
+  return { name: 'Test 2 — Priority change propagates to allocation', checks };
+}
+
+function runAllTests() {
+  if (!RESULTS.length) { document.getElementById('tests-body').innerHTML = `<div class="ins-none">Run the analysis first.</div>`; return; }
+  document.getElementById('test-status').textContent = 'Running…';
+  setTimeout(() => {
+    const suites = [runTest1(), runTest2()];
+    renderTests(suites);
+    document.getElementById('test-status').textContent = `Last run: ${new Date().toLocaleTimeString('en-GB')}`;
+  }, 20);
+}
+
+function renderTests(suites) {
+  const el = document.getElementById('tests-body');
+  el.innerHTML = suites.map(suite => {
+    const total = suite.checks.filter(c => c.pass !== null).length;
+    const passed = suite.checks.filter(c => c.pass === true).length;
+    const allPass = suite.checks.every(c => c.pass !== false);
+    const headColor = allPass ? 'var(--green)' : 'var(--red)';
+    const headBg = allPass ? 'var(--grn-bg)' : 'var(--red-bg)';
+    return `
+    <div class="ins-card" style="border-left:4px solid ${headColor}">
+      <h3>${allPass ? '✅' : '❌'} ${suite.name}</h3>
+      <div class="ins-headline" style="background:${headBg};border-left-color:${headColor}">
+        <b>${passed} / ${total}</b> checks passed${total<suite.checks.length?` (${suite.checks.length-total} skipped/N-A)`:''}.
+      </div>
+      <table class="ins-tbl"><tbody>
+        ${suite.checks.map(c => `
+        <tr>
+          <td style="width:26px;text-align:center">${c.pass===true?'✅':c.pass===false?'❌':'⚪'}</td>
+          <td style="width:340px;font-weight:600">${c.label}</td>
+          <td style="font-size:.78rem;color:var(--muted);white-space:pre-line">${c.detail}</td>
+        </tr>`).join('')}
+      </tbody></table>
+    </div>`;
+  }).join('');
+}
+
 function initUI() {
   document.getElementById('upload-screen').style.display = 'none';
   document.getElementById('main').style.display = 'block';
@@ -3125,6 +3606,20 @@ function exportCSV(type) {
               s.netWithPO>0?s.netWithPO:'0', resDateStr, supp, poLines, note]
              .map(csvC).join(',') + '\r\n';
     });
+  } else if (type==='actions') {
+    const items = computeActionList().sort((a,b) => b.nProducts - a.nProducts || b.blockedUnits - a.blockedUnits);
+    const ACTION_LABEL = { po:'Raise PO', job:'Raise Work Order', more:'PO insufficient',
+                            expedite:'Expedite existing PO', customer:'Customer-owned (E2S)' };
+    csv = ['Action','Component','Description','Supplier','Qty Short','Products Blocked','Units Blocked',
+           'Value Blocked','Due Date','PO Qty','Resolves On','Days Late','Products'].map(csvC).join(',') + '\r\n';
+    items.forEach(i => {
+      csv += [ACTION_LABEL[i.action], i.comp, i.desc, i.supplier, Math.round(i.shortQty),
+              i.nProducts, Math.round(i.blockedUnits), Math.round(i.blockedValue),
+              i.earliestDue?fd(i.earliestDue):'', Math.round(i.poQty||0),
+              i.resDate?fd(i.resDate):'', i.lateDays||'', i.products.join(' | ')]
+             .map(csvC).join(',') + '\r\n';
+    });
+
   } else if (type==='insights') {
     // Two-section export answering: (1) what/when/how many, (2) what's blocking each product
     const I = computeInsights();
@@ -3464,6 +3959,7 @@ function showTab(id, btn) {
   btn.classList.add('active');
   if (id==='shared') renderShared();
   if (id==='insights') buildInsights();
+  if (id==='actions') buildActionList();
   if (id==='po')     renderPO();
   if (id==='summary') buildSummary();
   if (id==='bom')    renderBOM();
