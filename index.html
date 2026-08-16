@@ -1257,7 +1257,7 @@ function runAllocation() {
       const needCapped  = splitLim > 0 ? Math.min(needTotal, splitLim) : needTotal;
 
       // Available stock = on-hand inventory
-      const onHand = INVENTORY[c.comp] || 0;
+      const onHand = INVENTORY[c.comp] || 0;  // raw physical stock — informational only
 
       // Sub-assembly unallocated supply:
       // Open WOs for this component (already in production)
@@ -1271,11 +1271,23 @@ function runAllocation() {
       // that already-shrunk supply.
       const saOpenWO    = SA_OPEN_WO[c.comp]  || 0;
       const saExisting  = Math.max(0, (SA_DEMAND[c.comp] || 0) - needActive);
-      const saFree      = Math.max(0, saOpenWO - saExisting); // unallocated WO supply
-      // Note: saFree is sub-assembly supply already in production that isn't spoken for
+      const saFree      = Math.max(0, saOpenWO - saExisting); // unallocated WO supply, informational
 
-      // Effective on-hand for this product = stock + free sub-assembly WO supply
-      const effectiveOnHand = onHand + saFree;
+      // Effective on-hand MUST reflect the same priority-ordered shared pool the
+      // Shortages tab and Can We Build already use (poolSnapshotActive/Planned) —
+      // not raw INVENTORY. Raw stock doesn't know that a higher-priority product
+      // ahead of this one in line already claimed some or all of it; using it here
+      // was letting Build Plan/Can We Build/Action List report a component as fine
+      // when the true, fairly-allocated remainder was actually zero. The pool
+      // snapshot already includes SA_OPEN_WO (added once, up front, before Pass 1),
+      // so we do NOT separately add saFree on top of it — that would double count
+      // the same supply. Only fall back to raw stock+saFree for a product that never
+      // got walked into either pass (no active AND no planned demand at all).
+      const hasActiveSnap  = poolSnapshotActive[prod]  && (c.comp in poolSnapshotActive[prod]);
+      const hasPlannedSnap = poolSnapshotPlanned[prod] && (c.comp in poolSnapshotPlanned[prod]);
+      const effectiveOnHand = hasActiveSnap  ? poolSnapshotActive[prod][c.comp]
+                             : hasPlannedSnap ? poolSnapshotPlanned[prod][c.comp]
+                             : onHand + saFree;
 
       const pos    = (PO_BY_ITEM[c.comp] || []).sort((a,b) => (a.eta||new Date(9e15)) - (b.eta||new Date(9e15)));
       const poAll  = pos.reduce((s,p) => s+p.qty, 0);
@@ -1288,8 +1300,14 @@ function runAllocation() {
       const shortActive       = Math.max(0, needActive - effectiveOnHand);
       const shortActivePO     = Math.max(0, needActive - effectiveOnHand - poBeforeActive);
 
-      // Planned: stock remaining after active allocation
-      const stockAfterActive    = Math.max(0, effectiveOnHand - needActive);
+      // Planned: use the planned-pass pool snapshot directly — it already reflects
+      // the pool after ALL active consumption (by every product, not just this
+      // one) AND after higher-priority products' planned consumption too. That's
+      // strictly more accurate than deriving it as "this product's own
+      // effectiveOnHand minus this product's own active need," which ignores
+      // planned-phase competition from other products entirely.
+      const stockAfterActive = hasPlannedSnap ? poolSnapshotPlanned[prod][c.comp]
+                              : Math.max(0, effectiveOnHand - needActive);
       const buildPlannedNow     = c.qpa>0 ? Math.floor(stockAfterActive/c.qpa) : 0;
       const buildPlannedWithPO  = c.qpa>0 ? Math.floor((stockAfterActive+poBeforePlanned)/c.qpa) : 0;
       const shortPlanned        = Math.max(0, needPlanned - stockAfterActive);
@@ -1335,8 +1353,15 @@ function runAllocation() {
     const buildPoDue = buildActiveWithPO + buildPlannedWithPO;
     const buildPoAll = compAnalysis.length ? Math.min(total_qty, Math.min(...compAnalysis.map(c=>c.buildPoAll))) : 0;
 
-    const blockingActive  = compAnalysis.filter(c=>c.shortActive>0);
-    const blockingPlanned = compAnalysis.filter(c=>c.shortPlanned>0);
+    // "Blocking" must mean the same thing everywhere in the app. Phantom items have
+    // no real stocking point (their "shortage" is a computation artifact, not a real
+    // constraint), and E2S items are the customer's responsibility, not ours — Can We
+    // Build and the Shortages tab already exclude both from being real blockers, so
+    // this count must too, or the same product shows a different "how many things
+    // are blocking it" number depending which tab you're looking at.
+    const realBlockers    = compAnalysis.filter(isRealConstraint);
+    const blockingActive  = realBlockers.filter(c=>c.shortActive>0);
+    const blockingPlanned = realBlockers.filter(c=>c.shortPlanned>0);
     const blocking        = [...new Set([...blockingActive,...blockingPlanned])];
 
     const pctNow        = total_qty>0 ? Math.round(buildNow/total_qty*100) : (bom.length?100:0);
@@ -1616,14 +1641,24 @@ function netRequirements(tree, parentDemand, stockOverride) {
 
       if (node.children.length > 0) {
         const childShortages = buildShortages(node.children);
-        if (net > 0) {
+        if (isPhantom) {
+          // Phantom items have no real stocking point — they're a structural
+          // pass-through grouping, never a genuine shortage in their own right
+          // (their "net" is meaningless since INVENTORY never tracks them, so it
+          // would otherwise always compute as fully short). Only surface a
+          // phantom node at all if its real children actually have a shortage.
+          if (childShortages.length > 0) {
+            shortages.push({ ...makeEnriched(), childShortages, isSA: true,
+              isBlocking: false, isPassThrough: true });
+          }
+        } else if (net > 0) {
           shortages.push({ ...makeEnriched(), childShortages, isSA: true, isBlocking: true });
         } else if (childShortages.length > 0) {
           shortages.push({ ...makeEnriched(), childShortages, isSA: true,
             isBlocking: false, isPassThrough: true });
         }
       } else {
-        if (net <= 0) continue;
+        if (isPhantom || net <= 0) continue;
         shortages.push({ ...makeEnriched(), childShortages: [], isSA: false, isBlocking: true });
       }
     }
