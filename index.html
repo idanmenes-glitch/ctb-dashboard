@@ -1788,23 +1788,52 @@ function loadE2SList(input) {
   const file = input.files[0];
   const reader = new FileReader();
   reader.onload = e => {
-    const text = e.target.result;
+    let text = e.target.result;
+    // Strip a UTF-8 BOM if present — common in Windows/Excel-exported CSVs, and it
+    // silently corrupts just the FIRST code in the file (an invisible char prefix
+    // makes it fail to match anything, while every other row still shows fine).
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
     E2S_SET = new Set();
     text.split(/\r?\n/).forEach(line => {
-      // Take first column (before any comma), trim
-      const code = line.split(',')[0].trim();
+      // Take first column (before any comma), trim, and strip surrounding quotes
+      // (Excel wraps values in quotes when the source column itself has commas).
+      let code = line.split(',')[0].trim().replace(/^["']|["']$/g, '').trim();
       if (code && code.toLowerCase() !== 'item' && code.toLowerCase() !== 'component') {
         E2S_SET.add(code);
       }
     });
     document.getElementById('e2s-count').textContent = E2S_SET.size ? `(${E2S_SET.size})` : '';
+
+    // Sanity check: do ANY of the uploaded codes actually match a known component?
+    // If not, the codes almost certainly don't match this BOM's naming convention
+    // (wrong file, wrong column, or a formatting mismatch) — warn immediately
+    // rather than silently showing nothing anywhere.
+    if (E2S_SET.size && Object.keys(BOM_BY_PROD).length) {
+      const known = new Set();
+      Object.values(BOM_BY_PROD).forEach(list => list.forEach(c => known.add(c.comp)));
+      const matched = [...E2S_SET].filter(code => known.has(code)).length;
+      if (matched === 0) {
+        toast(`⚠️ Uploaded ${E2S_SET.size} E2S code(s), but NONE match any component in the loaded BOM — check the file has the right codes/column.`);
+      } else {
+        toast(`E2S list loaded — ${matched} of ${E2S_SET.size} code(s) matched components in this BOM ✓`);
+      }
+    } else {
+      toast(`E2S list loaded — ${E2S_SET.size} components ✓`);
+    }
     saveE2StoDB(Array.from(E2S_SET));
-    // Recalculate so E2S components stop being flagged as blocking
+    // Recalculate so E2S components stop being flagged as blocking, and refresh
+    // every tab that shows the E2S remark — not just the three most-visited ones —
+    // so the badge appears immediately without needing to navigate away and back.
     if (RESULTS.length) {
       runAllocation();
       renderPlan(); renderShortage(); renderShared(); updateKPIs();
+      renderPO();
+      buildSummary();
+      if (document.getElementById('bom-prod')?.value) renderBOM();
+      if (document.getElementById('rd-prod')?.value) renderRawDemand();
+      if (document.getElementById('tab-insights')?.classList.contains('active')) buildInsights();
+      if (document.getElementById('tab-actions')?.classList.contains('active')) buildActionList();
     }
-    toast(`E2S list loaded — ${E2S_SET.size} components ✓`);
   };
   reader.readAsText(file);
   input.value = ''; // allow re-upload of same file
