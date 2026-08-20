@@ -1231,16 +1231,10 @@ function runAllocation() {
   sortedPlanned.forEach(prod => {
     const bom = BOM_BY_PROD[prod] || [];
     const orders = ORDERS_BY_PROD[prod] || [];
-    const active_qty     = orders.filter(o=>o.type==='active').reduce((s,o)=>s+o.qty,0);
-    const planned_qty_raw = orders.filter(o=>o.type==='planned').reduce((s,o)=>s+o.qty,0);
-    // An active work order already produces real, finished units of this SAME
-    // product — those units also satisfy the product's own forecast/planned
-    // demand, they aren't a separate need on top of it. So only whatever planned
-    // demand ISN'T already covered by the active quantity should draw on the
-    // material pool here. E.g. active=19, planned=16 → nothing extra needed for
-    // planned (the active run already covers it, with 3 to spare); active=10,
-    // planned=16 → only the uncovered 6 units still need material.
-    const planned_qty = Math.max(0, planned_qty_raw - active_qty);
+    // Planned/forecast demand is tracked in full — it is NOT reduced by active
+    // work order quantity. Active and planned are separate, additive demand
+    // streams for material allocation purposes.
+    const planned_qty = orders.filter(o=>o.type==='planned').reduce((s,o)=>s+o.qty,0);
     if (planned_qty <= 0 || !bom.length) return;
     // Snapshot the pool state BEFORE this product takes from it
     poolSnapshotPlanned[prod] = {};
@@ -1275,10 +1269,10 @@ function runAllocation() {
     const bom    = BOM_BY_PROD[prod] || [];
     const orders = (ORDERS_BY_PROD[prod] || []).slice().sort((a,b)=>(a.date||new Date(9999,0,1))-(b.date||new Date(9999,0,1)));
     const active_qty     = orders.filter(o=>o.type==='active').reduce((s,o)=>s+o.qty,0);
-    const planned_qty_raw = orders.filter(o=>o.type==='planned').reduce((s,o)=>s+o.qty,0);
-    // Same netting as Pass 2 above — the displayed "Planned Qty" reflects only
-    // the forecast demand that isn't already covered by active production.
-    const planned_qty  = Math.max(0, planned_qty_raw - active_qty);
+    // Planned/forecast demand is the raw forecast total — not reduced by active
+    // work order quantity. Active and planned are tracked as separate, additive
+    // demand streams throughout the app (Build Plan, Can We Build, revenue, etc.).
+    const planned_qty  = orders.filter(o=>o.type==='planned').reduce((s,o)=>s+o.qty,0);
     const total_qty    = active_qty + planned_qty;
     const first_due          = orders.find(o=>o.date)?.date || null;
     const first_active_due   = orders.find(o=>o.type==='active'  && o.date)?.date || null;
