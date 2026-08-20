@@ -77,15 +77,15 @@ select option{background:var(--panel)}
 #priority-panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:16px}
 #priority-panel h3{font-size:.78rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px}
 #priority-list{display:flex;flex-direction:column;gap:4px;max-height:260px;overflow-y:auto}
-.pri-item{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--panel);border:1px solid var(--border);border-radius:6px;cursor:grab;transition:background .1s;user-select:none}
+.pri-item{display:flex;align-items:center;gap:5px;padding:6px 8px;background:var(--panel);border:1px solid var(--border);border-radius:6px;cursor:grab;transition:background .1s;user-select:none;flex-wrap:nowrap}
 .pri-item:active{cursor:grabbing}
 .pri-item.dragging{opacity:.4;background:var(--border)}
 .pri-item.drag-over{border-color:var(--accent);background:rgba(56,189,248,.07)}
 .pri-rank{font-size:.72rem;color:var(--muted);width:18px;flex-shrink:0;font-weight:600}
-.pri-prod{font-size:.8rem;font-weight:700;color:var(--accent2);flex:1}
-.pri-desc{font-size:.72rem;color:var(--muted);flex:2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pri-flag{display:flex;gap:4px}
-.pri-flag button{padding:2px 7px;font-size:.68rem;border-radius:10px}
+.pri-prod{font-size:.74rem;font-weight:700;color:var(--accent2);flex-shrink:0;width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pri-desc{font-size:.68rem;color:var(--muted);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pri-flag{display:flex;gap:2px}
+.pri-flag button{padding:1px 4px;font-size:.62rem;border-radius:8px}
 .pri-flag .f-crit.active{background:var(--red-bg);color:var(--red);border-color:var(--red)}
 .pri-flag .f-norm.active{background:rgba(56,189,248,.12);color:var(--accent);border-color:var(--accent)}
 .pri-flag .f-low.active{background:var(--yel-bg);color:var(--yellow);border-color:var(--yellow)}
@@ -147,10 +147,15 @@ tbody tr:first-child td{border-top:none}
 #pri-filter-row{display:flex;gap:6px;align-items:center;margin-bottom:8px}
 #pri-filter-row input{flex:1;font-size:.75rem;padding:4px 8px}
 /* Remove button */
-.f-remove{padding:2px 7px;font-size:.68rem;border-radius:10px;background:rgba(100,100,100,.12);color:#888;border-color:#444}
+.f-remove{padding:1px 4px;font-size:.62rem;border-radius:8px;background:rgba(100,100,100,.12);color:#888;border-color:#444}
 .f-remove:hover{background:var(--red-bg);color:var(--red);border-color:var(--red)}
 /* Removed item */
 .pri-item.removed{opacity:.35;border-style:dashed}
+.pri-phase{display:flex;align-items:center;gap:2px;flex-shrink:0;padding:2px 4px;border-radius:5px;background:rgba(0,0,0,.03)}
+.pri-phase-label{font-size:.6rem;font-weight:800;color:var(--muted);width:9px;text-align:center}
+.pri-rank-input{width:26px;font-size:.68rem;padding:1px 2px;text-align:center;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--text)}
+.pri-rank-input:disabled{opacity:.4}
+.pri-phase .pri-flag{gap:1px}
 /* ACT/SIM badges */
 .b-act{background:var(--act-bg);color:var(--act-fg)}
 .b-sim{background:var(--sim-bg);color:var(--sim)}
@@ -299,7 +304,7 @@ tbody tr:first-child td{border-top:none}
   <!-- BUILD PLAN -->
   <div id="tab-plan" class="tab-panel active">
     <div class="kpi-strip" id="kpi-strip"></div>
-    <div style="display:grid;grid-template-columns:320px 1fr;gap:14px;align-items:start">
+    <div style="display:grid;grid-template-columns:460px 1fr;gap:14px;align-items:start">
       <div id="priority-panel">
         <h3>⬆ Priority order <span style="font-weight:400;color:var(--muted);font-size:.68rem">(drag to reorder)</span></h3>
         <div id="pri-filter-row">
@@ -335,8 +340,8 @@ tbody tr:first-child td{border-top:none}
         </div>
         <div class="tbl-wrap">
           <table id="tbl-plan"><thead><tr>
-            <th onclick="psort('rank')" style="width:34px">#</th>
-            <th onclick="psort('flag')" style="width:70px">Priority</th>
+            <th onclick="psort('rank_active')" style="width:44px" title="Active rank (top) / Planned rank (bottom)">#</th>
+            <th onclick="psort('flag_active')" style="width:80px" title="Active flag (top) / Planned flag (bottom)">Priority</th>
             <th onclick="psort('wo_type')" style="width:50px">Type</th>
             <th onclick="psort('prod')" style="width:130px">Product</th>
             <th onclick="psort('desc')" style="width:200px">Description</th>
@@ -627,9 +632,12 @@ let SA_DEMAND  = {};      // sub-assembly item -> total existing demand from oth
 let TOP_PRODUCTS = new Set(); // items that are top-level products (level 0 in BOM)
 
 let RESULTS = [];         // allocation results
-let PRIORITY = [];        // ordered list of product IDs
-let FLAGS = {};           // prod -> 'critical'|'normal'|'low'
-let REMOVED = new Set();  // products removed from analysis
+let PRIORITY_ACTIVE  = [];        // ordered list of product IDs — active-phase priority
+let PRIORITY_PLANNED = [];        // ordered list of product IDs — planned-phase priority
+let FLAGS_ACTIVE  = {};           // prod -> 'critical'|'normal'|'low' (active phase)
+let FLAGS_PLANNED = {};           // prod -> 'critical'|'normal'|'low' (planned phase)
+let REMOVED_ACTIVE  = new Set();  // products excluded from the ACTIVE allocation pass
+let REMOVED_PLANNED = new Set();  // products excluded from the PLANNED allocation pass
 let SPLIT_LIMITS = {};    // comp -> max qty per product (split limit)
 let NOTES = {};           // key -> user note (prod, comp, po line, etc.)
 let E2S_SET = new Set();  // components under customer responsibility (E2S) — OK to have no PO
@@ -639,7 +647,7 @@ let PRICE_FILE_DATE = null; // date it was uploaded (en-GB string)
 let SHARED_NOTES = {};    // comp -> note set in Shared Components tab (global per component)
 let RAW_BOM_ROWS = [];    // full BOM rows for BOM tab
 let RAW_ORDER_ROWS = [];  // full order rows for Raw Demand tab
-let planSortCol = 'rank', planSortDir = 1;
+let planSortCol = 'rank_active', planSortDir = 1;
 
 const TODAY = new Date(); TODAY.setHours(0,0,0,0);
 const EPOCH = new Date(1970,0,1);
@@ -1175,15 +1183,13 @@ function parseDate(v) {
 function runAllocation() {
   RESULTS = [];
 
-  const flagOrder = { critical: 0, normal: 1, low: 2 };
-  const sorted = [...PRIORITY]
-    .filter(p => !REMOVED.has(p))
-    .sort((a, b) => {
-      const fa = flagOrder[FLAGS[a] || 'normal'];
-      const fb = flagOrder[FLAGS[b] || 'normal'];
-      if (fa !== fb) return fa - fb;
-      return PRIORITY.indexOf(a) - PRIORITY.indexOf(b);
-    });
+  // Active and planned demand now have fully independent priority orders, flags,
+  // and removal sets — a product can be priority 1 for its active work order and
+  // priority 19 for its forecast at the same time. getSortedPriority(phase) below
+  // builds each phase's own ordering (critical flag first, then normal, then low,
+  // then that phase's own manual priority list order).
+  const sortedActive  = getSortedPriority('active');
+  const sortedPlanned = getSortedPriority('planned');
 
   // ── PASS 1: Allocate to ACTIVE WOs only ──
   const poolAfterActive = { ...INVENTORY };
@@ -1204,7 +1210,7 @@ function runAllocation() {
   const poolSnapshotActive  = {};  // prod -> {comp -> available at time of active allocation}
   const poolSnapshotPlanned = {};  // prod -> {comp -> available at time of planned allocation}
 
-  sorted.forEach(prod => {
+  sortedActive.forEach(prod => {
     const bom = BOM_BY_PROD[prod] || [];
     const orders = ORDERS_BY_PROD[prod] || [];
     const active_qty = orders.filter(o=>o.type==='active').reduce((s,o)=>s+o.qty,0);
@@ -1222,10 +1228,19 @@ function runAllocation() {
 
   // ── PASS 2: From remaining stock, allocate to PLANNED demand ──
   const poolAfterPlanned = { ...poolAfterActive };
-  sorted.forEach(prod => {
+  sortedPlanned.forEach(prod => {
     const bom = BOM_BY_PROD[prod] || [];
     const orders = ORDERS_BY_PROD[prod] || [];
-    const planned_qty = orders.filter(o=>o.type==='planned').reduce((s,o)=>s+o.qty,0);
+    const active_qty     = orders.filter(o=>o.type==='active').reduce((s,o)=>s+o.qty,0);
+    const planned_qty_raw = orders.filter(o=>o.type==='planned').reduce((s,o)=>s+o.qty,0);
+    // An active work order already produces real, finished units of this SAME
+    // product — those units also satisfy the product's own forecast/planned
+    // demand, they aren't a separate need on top of it. So only whatever planned
+    // demand ISN'T already covered by the active quantity should draw on the
+    // material pool here. E.g. active=19, planned=16 → nothing extra needed for
+    // planned (the active run already covers it, with 3 to spare); active=10,
+    // planned=16 → only the uncovered 6 units still need material.
+    const planned_qty = Math.max(0, planned_qty_raw - active_qty);
     if (planned_qty <= 0 || !bom.length) return;
     // Snapshot the pool state BEFORE this product takes from it
     poolSnapshotPlanned[prod] = {};
@@ -1239,11 +1254,31 @@ function runAllocation() {
   });
 
   // ── PASS 3: Build per-product results using the two pools ──
-  sorted.forEach((prod, idx) => {
+  // A product only fully disappears from the plan if it's been removed from
+  // BOTH phases — removing it from just one phase still lets it appear with
+  // the other phase's numbers intact (e.g. removed from active consideration
+  // but still shown/allocated for its planned demand).
+  const allProds = [...new Set([...PRIORITY_ACTIVE, ...PRIORITY_PLANNED])]
+    .filter(p => !(REMOVED_ACTIVE.has(p) && REMOVED_PLANNED.has(p)));
+  // Stable default ordering for the RESULTS array itself: by active rank where
+  // the product has one, otherwise by planned rank.
+  allProds.sort((a, b) => {
+    const ra = sortedActive.indexOf(a), rb = sortedActive.indexOf(b);
+    if (ra >= 0 && rb >= 0) return ra - rb;
+    if (ra >= 0) return -1;
+    if (rb >= 0) return 1;
+    return sortedPlanned.indexOf(a) - sortedPlanned.indexOf(b);
+  });
+  allProds.forEach((prod) => {
+    const rankActiveIdx  = sortedActive.indexOf(prod);
+    const rankPlannedIdx = sortedPlanned.indexOf(prod);
     const bom    = BOM_BY_PROD[prod] || [];
     const orders = (ORDERS_BY_PROD[prod] || []).slice().sort((a,b)=>(a.date||new Date(9999,0,1))-(b.date||new Date(9999,0,1)));
-    const active_qty   = orders.filter(o=>o.type==='active').reduce((s,o)=>s+o.qty,0);
-    const planned_qty  = orders.filter(o=>o.type==='planned').reduce((s,o)=>s+o.qty,0);
+    const active_qty     = orders.filter(o=>o.type==='active').reduce((s,o)=>s+o.qty,0);
+    const planned_qty_raw = orders.filter(o=>o.type==='planned').reduce((s,o)=>s+o.qty,0);
+    // Same netting as Pass 2 above — the displayed "Planned Qty" reflects only
+    // the forecast demand that isn't already covered by active production.
+    const planned_qty  = Math.max(0, planned_qty_raw - active_qty);
     const total_qty    = active_qty + planned_qty;
     const first_due          = orders.find(o=>o.date)?.date || null;
     const first_active_due   = orders.find(o=>o.type==='active'  && o.date)?.date || null;
@@ -1443,9 +1478,12 @@ function runAllocation() {
     });
 
     RESULTS.push({
-      prod, rank: idx+1,
+      prod,
+      rank_active:  rankActiveIdx  >= 0 ? rankActiveIdx  + 1 : null,
+      rank_planned: rankPlannedIdx >= 0 ? rankPlannedIdx + 1 : null,
       desc: PROD_DESC[prod]||'',
-      flag: FLAGS[prod]||'normal',
+      flag_active:  FLAGS_ACTIVE[prod]  || 'normal',
+      flag_planned: FLAGS_PLANNED[prod] || 'normal',
       active_qty, planned_qty, total_qty,
       first_due, first_active_due, first_planned_due, orders,
       bom, compAnalysis, effectiveStockSnapshot,
@@ -1470,10 +1508,15 @@ function runAnalysis() {
   setTimeout(() => {
     try {
       parseAll();
-      // Init priority from products in order plan
+      // Init priority from products in order plan — both phases start from the
+      // same default order, then can be independently reordered/flagged/removed.
       const prods = Object.keys(ORDERS_BY_PROD);
-      PRIORITY = prods;
-      prods.forEach(p => { if (!FLAGS[p]) FLAGS[p] = 'normal'; });
+      PRIORITY_ACTIVE  = [...prods];
+      PRIORITY_PLANNED = [...prods];
+      prods.forEach(p => {
+        if (!FLAGS_ACTIVE[p])  FLAGS_ACTIVE[p]  = 'normal';
+        if (!FLAGS_PLANNED[p]) FLAGS_PLANNED[p] = 'normal';
+      });
       showLoad('Running allocation…');
       setTimeout(() => {
         try {
@@ -2061,7 +2104,7 @@ function answerForProduct(r) {
   const due  = r.first_active_due || r.first_due || null;
 
   if (!bom.length || !want) {
-    return { prod:r.prod, desc:r.desc, want, due, rank:r.rank,
+    return { prod:r.prod, desc:r.desc, want, due, rank:r.rank_active ?? r.rank_planned,
              canNow:want, canEver:want, fullDate:TODAY, blockers:[], verdict:'now',
              steps:[], missDays:null };
   }
@@ -2158,7 +2201,7 @@ function answerForProduct(r) {
   }
   const overdue = !!(due && due < TODAY && canNow >= want); // buildable, but past its date
 
-  return { prod:r.prod, desc:r.desc, want, due, rank:r.rank, status:r.status,
+  return { prod:r.prod, desc:r.desc, want, due, rank:r.rank_active ?? r.rank_planned, status:r.status,
            canNow, canEver, fullDate, steps, blockers, verdict, missDays, overdue };
 }
 
@@ -2538,22 +2581,28 @@ function actSet(v) {
 // TESTS — automated correctness checks
 // ══════════════════════════════════════
 
-// Reconstruct the exact priority order runAllocation() uses (critical flag first,
-// then normal, then low, and within a flag group, PRIORITY list order).
-function getSortedPriority() {
+// Reconstruct the exact priority order runAllocation() uses for a given phase
+// (critical flag first, then normal, then low, then that phase's own manual
+// priority order). phase is 'active' or 'planned' — each has fully independent
+// priority list, flags, and removed set, so the same product can rank
+// differently (or be removed from only one) depending on which phase you ask.
+function getSortedPriority(phase) {
+  const PRIO = phase === 'planned' ? PRIORITY_PLANNED : PRIORITY_ACTIVE;
+  const FLAGMAP = phase === 'planned' ? FLAGS_PLANNED : FLAGS_ACTIVE;
+  const REM = phase === 'planned' ? REMOVED_PLANNED : REMOVED_ACTIVE;
   const flagOrder = { critical: 0, normal: 1, low: 2 };
-  return [...PRIORITY].filter(p => !REMOVED.has(p)).sort((a, b) => {
-    const fa = flagOrder[FLAGS[a] || 'normal'];
-    const fb = flagOrder[FLAGS[b] || 'normal'];
+  return [...PRIO].filter(p => !REM.has(p)).sort((a, b) => {
+    const fa = flagOrder[FLAGMAP[a] || 'normal'];
+    const fb = flagOrder[FLAGMAP[b] || 'normal'];
     if (fa !== fb) return fa - fb;
-    return PRIORITY.indexOf(a) - PRIORITY.indexOf(b);
+    return PRIO.indexOf(a) - PRIO.indexOf(b);
   });
 }
 
 // ── TEST 1: sub-assembly active-WO output is prioritized for demanding assemblies ──
 function runTest1() {
   const checks = [];
-  const sorted = getSortedPriority();
+  const sorted = getSortedPriority('active');
 
   // 1A — independent re-derivation: does raw order-plan data show an active WO for
   // an item that's also used as a component elsewhere, and if so, did SA_OPEN_WO
@@ -2650,7 +2699,7 @@ function runTest1() {
 // ── TEST 2: changing production priority changes raw-material allocation ──
 function runTest2() {
   const checks = [];
-  const sorted = getSortedPriority();
+  const sorted = getSortedPriority('active');
 
   // Find the most scarce, most-shared RAW/purchased component to test with: the one
   // demanded (actively) by the most products where at least one is currently short.
@@ -2712,19 +2761,22 @@ function runTest2() {
 
   // Perform the swap on a COPY, re-run the real allocation engine, capture results,
   // then restore original priority and re-run again so nothing is left changed.
-  const originalPriority = [...PRIORITY];
+  // This test targets the ACTIVE phase specifically (active and planned now have
+  // fully independent priority orders — testing active here is a representative,
+  // sufficient check that priority reordering propagates through the engine at all).
+  const originalPriority = [...PRIORITY_ACTIVE];
   let after = {};
   try {
-    const swapped = [...PRIORITY];
+    const swapped = [...PRIORITY_ACTIVE];
     const ia = swapped.indexOf(promote), ib = swapped.indexOf(demote);
-    if (ia === -1 || ib === -1) throw new Error('product missing from PRIORITY list');
+    if (ia === -1 || ib === -1) throw new Error('product missing from PRIORITY_ACTIVE list');
     [swapped[ia], swapped[ib]] = [swapped[ib], swapped[ia]];
-    PRIORITY = swapped;
+    PRIORITY_ACTIVE = swapped;
     runAllocation();
     after.promote = RESULTS.find(x => x.prod === promote)?.effectiveStockSnapshot?.[comp];
     after.demote  = RESULTS.find(x => x.prod === demote)?.effectiveStockSnapshot?.[comp];
   } finally {
-    PRIORITY = originalPriority;
+    PRIORITY_ACTIVE = originalPriority;
     runAllocation();
     renderPlan(); renderShortage(); renderShared(); buildSummary(); updateKPIs();
   }
@@ -2848,69 +2900,114 @@ function updateKPIs() {
 }
 
 // ══════════════════════════════════════
-// PRIORITY LIST (drag to reorder)
+// PRIORITY LIST — independent active & planned ranking per product
 // ══════════════════════════════════════
+// Active and planned demand each have their own priority order, flags, and
+// removed set (PRIORITY_ACTIVE/PLANNED, FLAGS_ACTIVE/PLANNED,
+// REMOVED_ACTIVE/PLANNED). This panel shows ONE row per product with both
+// phases' controls side by side, rather than two separate lists — you can see
+// and edit a product's active rank and planned rank at a glance.
 function buildPriorityList() {
-  const srch       = (document.getElementById('pri-filter')?.value || '').toLowerCase();
-  const showRemoved= document.getElementById('pri-show-removed')?.checked;
-  const list       = document.getElementById('priority-list');
-  const flagOrder  = {critical:0, normal:1, low:2};
+  const srch        = (document.getElementById('pri-filter')?.value || '').toLowerCase();
+  const showRemoved = document.getElementById('pri-show-removed')?.checked;
+  const list        = document.getElementById('priority-list');
 
-  let items = PRIORITY.map((prod,i) => ({prod, i})).filter(({prod}) => {
-    if (REMOVED.has(prod) && !showRemoved) return false;
+  // Visual order: primarily by active rank; products not in the active list
+  // (fully absent, shouldn't normally happen) fall back to planned rank.
+  let allProds = [...new Set([...PRIORITY_ACTIVE, ...PRIORITY_PLANNED])];
+  allProds.sort((a, b) => {
+    const ra = PRIORITY_ACTIVE.indexOf(a), rb = PRIORITY_ACTIVE.indexOf(b);
+    if (ra >= 0 && rb >= 0) return ra - rb;
+    if (ra >= 0) return -1;
+    if (rb >= 0) return 1;
+    return PRIORITY_PLANNED.indexOf(a) - PRIORITY_PLANNED.indexOf(b);
+  });
+
+  let items = allProds.filter(prod => {
+    const remA = REMOVED_ACTIVE.has(prod), remP = REMOVED_PLANNED.has(prod);
+    if (remA && remP && !showRemoved) return false;
     if (srch && ![prod, PROD_DESC[prod]||''].join(' ').toLowerCase().includes(srch)) return false;
     return true;
   });
 
-  list.innerHTML = items.map(({prod, i}) => {
-    const desc    = (PROD_DESC[prod] || '').substring(0, 42);
-    const flag    = FLAGS[prod] || 'normal';
-    const removed = REMOVED.has(prod);
-    // ACT/SIM signal
-    const orders  = ORDERS_BY_PROD[prod] || [];
-    const hasAct  = orders.some(o => o.type === 'active');
-    const hasSim  = orders.some(o => o.type === 'planned');
-    const woTag   = hasAct && hasSim
+  list.innerHTML = items.map(prod => {
+    const desc  = (PROD_DESC[prod] || '').substring(0, 18);
+    const flagA = FLAGS_ACTIVE[prod]  || 'normal';
+    const flagP = FLAGS_PLANNED[prod] || 'normal';
+    const remA  = REMOVED_ACTIVE.has(prod);
+    const remP  = REMOVED_PLANNED.has(prod);
+    const rankA = PRIORITY_ACTIVE.indexOf(prod);
+    const rankP = PRIORITY_PLANNED.indexOf(prod);
+    const bothRemoved = remA && remP;
+    const orders = ORDERS_BY_PROD[prod] || [];
+    const hasAct = orders.some(o => o.type === 'active');
+    const hasSim = orders.some(o => o.type === 'planned');
+    const woTag  = hasAct && hasSim
       ? `<span class="b-act-s">ACT</span><span class="b-sim-s">SIM</span>`
       : hasAct ? `<span class="b-act-s">ACT</span>`
       : hasSim ? `<span class="b-sim-s">SIM</span>` : '';
-    return `<div class="pri-item${removed?' removed':''}" draggable="${!removed}" data-prod="${prod}"
+
+    const phaseBlock = (phase, rank, flag, removed) => `
+      <div class="pri-phase" title="${phase==='active'?'Active':'Planned'} priority">
+        <span class="pri-phase-label">${phase==='active'?'A':'P'}</span>
+        <input type="number" class="pri-rank-input" min="1" value="${rank>=0?rank+1:''}"
+          ${removed?'disabled':''} onchange="setRank('${prod}','${phase}',this.value)"
+          title="Type a rank number to move this product to that position">
+        ${removed ? '' : `<div class="pri-flag">
+          <button class="f-crit ${flag==='critical'?'active':''}" onclick="setFlag('${prod}','${phase}','critical')" title="Critical">🔴</button>
+          <button class="f-norm ${flag==='normal'?'active':''}" onclick="setFlag('${prod}','${phase}','normal')" title="Normal">🔵</button>
+          <button class="f-low ${flag==='low'?'active':''}" onclick="setFlag('${prod}','${phase}','low')" title="Low">🟡</button>
+        </div>`}
+        <button class="f-remove" onclick="toggleRemove('${prod}','${phase}')"
+          title="${removed?`Restore to ${phase} analysis`:`Remove from ${phase} analysis`}">${removed?'↩':'✕'}</button>
+      </div>`;
+
+    return `<div class="pri-item${bothRemoved?' removed':''}" draggable="${!bothRemoved}" data-prod="${prod}"
       ondragstart="dragStart(event)" ondragover="dragOver(event)"
       ondrop="dropItem(event)" ondragleave="dragLeave(event)" ondragend="dragEnd(event)">
-      <span class="pri-rank">${i+1}</span>
-      <span class="pri-prod">${prod}</span>
+      <span class="pri-prod" title="${prod}">${prod}</span>
       <span style="display:flex;gap:3px;flex-shrink:0">${woTag}</span>
       <span class="pri-desc" title="${desc}">${desc}</span>
-      <div class="pri-flag">
-        ${removed ? '' : `
-        <button class="f-crit ${flag==='critical'?'active':''}" onclick="setFlag('${prod}','critical')" title="Critical">🔴</button>
-        <button class="f-norm ${flag==='normal'?'active':''}" onclick="setFlag('${prod}','normal')" title="Normal">🔵</button>
-        <button class="f-low ${flag==='low'?'active':''}" onclick="setFlag('${prod}','low')" title="Low">🟡</button>`}
-        <button class="f-remove" onclick="toggleRemove('${prod}')" title="${removed?'Restore to analysis':'Remove from analysis'}">
-          ${removed ? '↩' : '✕'}
-        </button>
-      </div>
+      ${phaseBlock('active', rankA, flagA, remA)}
+      ${phaseBlock('planned', rankP, flagP, remP)}
     </div>`;
   }).join('');
 }
 
-function setFlag(prod, flag) {
-  FLAGS[prod] = flag;
+function setFlag(prod, phase, flag) {
+  if (phase === 'active') FLAGS_ACTIVE[prod] = flag; else FLAGS_PLANNED[prod] = flag;
   buildPriorityList();
 }
 
-function toggleRemove(prod) {
-  if (REMOVED.has(prod)) REMOVED.delete(prod);
-  else REMOVED.add(prod);
+// Directly editing a rank number moves the product to that position within
+// that phase's own priority list — an alternative to dragging, and the only
+// way to reposition the planned rank (dragging the row only reorders active,
+// see dropItem below).
+function setRank(prod, phase, value) {
+  const n = parseInt(value, 10);
+  const arr = phase === 'active' ? PRIORITY_ACTIVE : PRIORITY_PLANNED;
+  const idx = arr.indexOf(prod);
+  if (idx < 0 || isNaN(n) || n < 1) { buildPriorityList(); return; }
+  arr.splice(idx, 1);
+  const newIdx = Math.max(0, Math.min(arr.length, n - 1));
+  arr.splice(newIdx, 0, prod);
   buildPriorityList();
 }
 
-// Reset all priority flags to 'normal' and restore all removed products.
-// Does NOT change drag order — only clears flags/removals.
+function toggleRemove(prod, phase) {
+  const set = phase === 'active' ? REMOVED_ACTIVE : REMOVED_PLANNED;
+  if (set.has(prod)) set.delete(prod); else set.add(prod);
+  buildPriorityList();
+}
+
+// Reset all priority flags to 'normal' and restore all removed products, for
+// BOTH phases. Does NOT change rank order — only clears flags/removals.
 function clearAllPriorities() {
-  if (!confirm('Clear all priority flags and restore removed products?')) return;
-  PRIORITY.forEach(p => { FLAGS[p] = 'normal'; });
-  REMOVED.clear();
+  if (!confirm('Clear all priority flags and restore removed products (both active and planned)?')) return;
+  PRIORITY_ACTIVE.forEach(p => { FLAGS_ACTIVE[p] = 'normal'; });
+  PRIORITY_PLANNED.forEach(p => { FLAGS_PLANNED[p] = 'normal'; });
+  REMOVED_ACTIVE.clear();
+  REMOVED_PLANNED.clear();
   buildPriorityList();
   toast('Priorities cleared ✓ — click Recalculate to apply');
 }
@@ -2928,17 +3025,19 @@ function dragOver(e) {
 }
 function dragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
 function dragEnd(e)   { e.currentTarget.classList.remove('dragging'); }
+// Dragging a row reorders the ACTIVE priority (the order this panel is sorted
+// by). To change a product's PLANNED rank, edit its "P" number field instead.
 function dropItem(e) {
   e.preventDefault();
   e.currentTarget.classList.remove('drag-over');
   if (!dragSrc || dragSrc === e.currentTarget) return;
   const srcProd  = dragSrc.dataset.prod;
   const destProd = e.currentTarget.dataset.prod;
-  const si = PRIORITY.indexOf(srcProd);
-  const di = PRIORITY.indexOf(destProd);
+  const si = PRIORITY_ACTIVE.indexOf(srcProd);
+  const di = PRIORITY_ACTIVE.indexOf(destProd);
   if (si < 0 || di < 0) return;
-  PRIORITY.splice(si, 1);
-  PRIORITY.splice(di, 0, srcProd);
+  PRIORITY_ACTIVE.splice(si, 1);
+  PRIORITY_ACTIVE.splice(di, 0, srcProd);
   buildPriorityList();
 }
 
@@ -2971,10 +3070,12 @@ function renderPlan() {
   rows = rows.slice().sort((a,b) => {
     let va = a[planSortCol], vb = b[planSortCol];
     if (planSortCol==='first_due') { va=a.first_due?.getTime()||9e15; vb=b.first_due?.getTime()||9e15; }
-    if (planSortCol==='flag') {
+    if (planSortCol==='flag_active' || planSortCol==='flag_planned') {
       const fo = {critical:0,normal:1,low:2};
-      va=fo[a.flag||'normal']; vb=fo[b.flag||'normal'];
+      va=fo[a[planSortCol]||'normal']; vb=fo[b[planSortCol]||'normal'];
     }
+    if (va===null || va===undefined) va = planSortCol.startsWith('rank') ? 9e15 : va;
+    if (vb===null || vb===undefined) vb = planSortCol.startsWith('rank') ? 9e15 : vb;
     if (typeof va==='string') return planSortDir*va.localeCompare(vb);
     return planSortDir*((va||0)-(vb||0));
   });
@@ -3006,8 +3107,11 @@ function renderPlan() {
       const fsC   = !r.firstSplitDate ? 'var(--red)' : r.firstSplitDate<=TODAY ? 'var(--green)' : daysDiff(r.firstSplitDate)<=30 ? 'var(--orange)' : 'var(--muted)';
       const fpC   = !r.fullProdDate   ? 'var(--red)' : r.fullProdDate<=TODAY   ? 'var(--green)' : daysDiff(r.fullProdDate)<=30   ? 'var(--orange)' : 'var(--muted)';
       return `<tr style="cursor:pointer">
-        <td onclick="jumpToShortage('${r.prod}')" style="color:var(--muted);font-size:.72rem">${r.rank}</td>
-        <td onclick="jumpToShortage('${r.prod}')"><span style="font-size:.72rem">${flagBadge[r.flag||'normal']}</span></td>
+        <td onclick="jumpToShortage('${r.prod}')" style="color:var(--muted);font-size:.68rem;line-height:1.5" title="Active rank / Planned rank">
+          A:${r.rank_active ?? '—'}<br>P:${r.rank_planned ?? '—'}</td>
+        <td onclick="jumpToShortage('${r.prod}')" style="line-height:1.5" title="Active flag / Planned flag">
+          <span style="font-size:.72rem">${flagBadge[r.flag_active||'normal']}</span><br>
+          <span style="font-size:.72rem">${flagBadge[r.flag_planned||'normal']}</span></td>
         <td onclick="jumpToShortage('${r.prod}')">${woTag}</td>
         <td onclick="jumpToShortage('${r.prod}')" style="font-weight:700;color:var(--accent2);font-size:.8rem">${r.prod}</td>
         <td onclick="jumpToShortage('${r.prod}')"><span class="trunc" title="${r.desc}">${r.desc||'—'}</span></td>
@@ -3389,7 +3493,7 @@ ${partial.map(r=>
 PRIORITY ORDER (current)
 ${LINE}
 ${RESULTS.slice(0,10).map((r,i)=>
-  `${i+1}. ${r.prod} [${(FLAGS[r.prod]||'normal').toUpperCase()}] — ${r.status}`
+  `${i+1}. ${r.prod} [A:${(r.flag_active||'normal').toUpperCase()}/P:${(r.flag_planned||'normal').toUpperCase()}] — ${r.status}`
 ).join('\n')}
 
 Generated by Manufacturing Readiness Dashboard`;
@@ -3402,7 +3506,7 @@ PRODUCT STATUS
 ${LINE}
 ${RESULTS.map(r=>{
   const pct = r.pctNow;
-  return `${r.prod.padEnd(20)} [${(FLAGS[r.prod]||'normal').toUpperCase().padEnd(8)}] ${r.status.padEnd(10)} Build: ${String(r.buildNow).padStart(5)}/${String(r.total_qty).padStart(5)} (${pct}%) | POs: ${r.buildPoDue} | Due: ${fd(r.first_due)}`;
+  return `${r.prod.padEnd(20)} [A:${(r.flag_active||'normal').toUpperCase()}/P:${(r.flag_planned||'normal').toUpperCase()}] ${r.status.padEnd(10)} Build: ${String(r.buildNow).padStart(5)}/${String(r.total_qty).padStart(5)} (${pct}%) | POs: ${r.buildPoDue} | Due: ${fd(r.first_due)}`;
 }).join('\n')}
 
 BLOCKING COMPONENTS — TOP 10
@@ -3608,14 +3712,14 @@ function exportCSV(type) {
   let csv = '';
   const date = new Date().toLocaleDateString('en-GB').replace(/\//g,'-');
   if (type==='plan') {
-    csv = ['Rank','Flag','Type','Product','Description','Active Qty','Planned Qty','Total Qty','Active Build','Plan Build','Build Now','Build+POs','% Now','Blocking','Price','Order Value','Buildable Value Now','First Due','First Split Date','Full Prod Date','Status','Phantom-OK','Notes'].map(csvC).join(',') + '\r\n';
+    csv = ['Active Rank','Planned Rank','Active Flag','Planned Flag','Type','Product','Description','Active Qty','Planned Qty','Total Qty','Active Build','Plan Build','Build Now','Build+POs','% Now','Blocking','Price','Order Value','Buildable Value Now','First Due','First Split Date','Full Prod Date','Status','Phantom-OK','Notes'].map(csvC).join(',') + '\r\n';
     RESULTS.forEach(r => {
       const noteVal = NOTES[`plan_${r.prod}`] || '';
       const type = r.active_qty>0 && r.planned_qty>0 ? 'ACT+SIM' : r.active_qty>0 ? 'ACT' : 'SIM';
       const price = PRICE_BY_PROD[r.prod] || '';
       const ov = price ? Math.round(r.total_qty*price) : '';
       const bv = price ? Math.round(r.buildNow*price) : '';
-      csv += [r.rank,FLAGS[r.prod]||'normal',type,r.prod,r.desc,r.active_qty,r.planned_qty,r.total_qty,
+      csv += [r.rank_active,r.rank_planned,r.flag_active||'normal',r.flag_planned||'normal',type,r.prod,r.desc,r.active_qty,r.planned_qty,r.total_qty,
               r.buildActiveNow,r.buildPlannedNow,r.buildNow,r.buildPoDue,r.pctNow+'%',r.n_blocking,
               price,ov,bv,
               fd(r.first_due),r.firstSplitDate?fd(r.firstSplitDate):'',r.fullProdDate?fd(r.fullProdDate):'',
@@ -4064,8 +4168,8 @@ async function resetApp() {
     }
   });
   // Clear all state — prevent stale data if user loads a new set of files
-  RESULTS=[]; PRIORITY=[]; FLAGS={};
-  REMOVED=new Set(); SPLIT_LIMITS={}; NOTES={};
+  RESULTS=[]; PRIORITY_ACTIVE=[]; PRIORITY_PLANNED=[]; FLAGS_ACTIVE={}; FLAGS_PLANNED={};
+  REMOVED_ACTIVE=new Set(); REMOVED_PLANNED=new Set(); SPLIT_LIMITS={}; NOTES={};
   INVENTORY={}; PO_BY_ITEM={}; BOM_BY_PROD={}; ORDERS_BY_PROD={};
   PROD_DESC={}; COMP_DESC={}; COMP_SUPPLIER={};
   SA_OPEN_WO={}; SA_DEMAND={}; TOP_PRODUCTS=new Set();
